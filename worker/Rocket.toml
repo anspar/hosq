@@ -1,0 +1,10 @@
+[debug]
+address = "0.0.0.0"
+port = 11666
+
+[release]
+address = "0.0.0.0"
+port = 11666
+
+[global.databases]
+pg = { url = "postgres://user:pass@0.0.0.0/anspar_ipfs"}

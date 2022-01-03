@@ -1,0 +1,29 @@
+use std::io::Read;
+use serde::{self, Deserialize};
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Providers{
+    pub contract_address: Option<String>,
+    pub provider: Option<String>,
+    pub start_block: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Config{
+    pub providers: Option<Vec<Providers>>,
+    pub ipfs_nodes: Option<Vec<String>>,
+}
+
+fn get_file_content(path: &String)->String{
+    let mut f = std::fs::File::open(path).expect("error reading the yaml file");
+    let mut content: String = String::new();
+    f.read_to_string(&mut content).expect("Unable to read yml data"); 
+    content
+}
+
+pub fn get_conf(path: &String) -> Config{
+    let content = get_file_content(path);
+    let deserialized_point: Config = serde_yaml::from_str(&content).expect("error parsing yaml");
+    println!("{:?}", deserialized_point);
+    deserialized_point 
+}

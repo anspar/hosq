@@ -7,7 +7,7 @@ contract IpfsManager {
   mapping(string=>uint256) private cid_valid_block;
   uint256 private per_block_price = 100*1e9; // 100 Gwei
 
-  event UpdateValidBlock(uint256 update_block, uint256 end_block, string cid);
+  event UpdateValidBlock(address donor, uint256 update_block, uint256 end_block, uint256 block_price, string cid);
 
   modifier onlyOwner() {
         require(msg.sender == deployer, "Not the deployer");
@@ -23,7 +23,7 @@ contract IpfsManager {
     }else{
       cid_valid_block[_cid] = curBlock+num_blocks;
     } 
-    emit UpdateValidBlock(curBlock, cid_valid_block[_cid], _cid);
+    emit UpdateValidBlock(msg.sender, curBlock, cid_valid_block[_cid], per_block_price, _cid);
   }
 
   function get_valid_block(string memory _cid) public view returns(uint256){
