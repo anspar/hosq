@@ -3,6 +3,7 @@ providers:
     contract_address: 3F4E941ef5071a1D09C2eB4a24DA1Fc43F76fcfF
     provider: ws://192.168.178.41:8545
     start_block: 96
+    block_time_sec: 15
 
 ipfs_nodes:
   - sdafsaffas

@@ -6,6 +6,7 @@ pub struct Providers{
     pub contract_address: Option<String>,
     pub provider: Option<String>,
     pub start_block: Option<i64>,
+    pub block_time_sec: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -24,6 +25,6 @@ fn get_file_content(path: &String)->String{
 pub fn get_conf(path: &String) -> Config{
     let content = get_file_content(path);
     let deserialized_point: Config = serde_yaml::from_str(&content).expect("error parsing yaml");
-    println!("{:?}", deserialized_point);
+    // println!("{:?}", deserialized_point);
     deserialized_point 
 }
