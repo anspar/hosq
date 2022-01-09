@@ -5,14 +5,22 @@ use serde::{self, Deserialize};
 pub struct Providers{
     pub contract_address: Option<String>,
     pub provider: Option<String>,
+    pub chain_name: Option<String>,
     pub start_block: Option<i64>,
     pub block_time_sec: Option<u64>,
+    pub update_interval_sec: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct IPFSNode{
+    pub api_url: Option<String>,
+    pub login: Option<String>,
+    pub password: Option<String>,
+}
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config{
     pub providers: Option<Vec<Providers>>,
-    pub ipfs_nodes: Option<Vec<String>>,
+    pub ipfs_nodes: Option<Vec<IPFSNode>>,
 }
 
 fn get_file_content(path: &String)->String{
