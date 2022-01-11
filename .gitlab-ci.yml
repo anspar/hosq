@@ -20,6 +20,7 @@ stages:          # List of stages for jobs, and their order of execution
 
 
 job:
+  image: docker:dind
   tags:
     - docker
   artifacts:
