@@ -20,9 +20,10 @@ stages:          # List of stages for jobs, and their order of execution
 
 
 job:
-  image: rust:1.57.0-alpine
+  stage: build
+  image: rust:1.57.0-buster
   tags:
-    - docker
+    - ubuntu
   artifacts:
     paths:
       - worker/target
