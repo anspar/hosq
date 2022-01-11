@@ -16,8 +16,7 @@ create table pinned_cids
     node text NOT NULL,
     cid TEXT NOT NULL,
     end_block BIGINT NOT NULL,
-    donor TEXT NOT NULL,
-    primary key (chain_id, node, cid, end_block, donor)
+    primary key (chain_id, node, cid, end_block)
 );
 
 create table failed_pins
@@ -26,6 +25,5 @@ create table failed_pins
     node text NOT NULL,
     cid TEXT NOT NULL,
     end_block BIGINT NOT NULL,
-    donor TEXT NOT NULL,
-    primary key (chain_id, node, cid, end_block, donor)
+    primary key (chain_id, node, cid, end_block)
 );

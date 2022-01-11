@@ -34,7 +34,7 @@ impl Contract {
                                 .unwrap();
             let r: i64 = match r.try_get(0){
                 Ok(v)=>v,
-                Err(e)=>{let b = me.provider.start_block.unwrap(); eprintln!("{:?}\nNo block data in db, will starting watching from block {}", e, &b); b}
+                Err(e)=>{let b = me.provider.start_block.unwrap(); eprintln!("{:?}\nNo block data in db, will start watching from block {}", e, &b); b}
             };
             r
         }).await;
