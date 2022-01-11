@@ -21,7 +21,7 @@ stages:          # List of stages for jobs, and their order of execution
 
 job:
   artifacts:
-  paths:
-    - worker/target
+    paths:
+      - worker/target
   script:
     - docker run -it --rm hello-world
