@@ -20,11 +20,12 @@ stages:          # List of stages for jobs, and their order of execution
 
 
 job:
-  image: docker:dind
+  image: rust:1.57.0-alpine
   tags:
     - docker
   artifacts:
     paths:
       - worker/target
   script:
-    - docker run --rm hello-world
+    - cd worker
+    - cargo build --release
