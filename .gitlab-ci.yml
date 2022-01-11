@@ -19,14 +19,23 @@ stages:          # List of stages for jobs, and their order of execution
   - deploy
 
 
-job:
+build_bin:
   stage: build
   image: rust:1.57.0-buster
   tags:
     - ubuntu
   artifacts:
     paths:
-      - worker/target
+      - worker/target/release/worker
   script:
     - cd worker
     - cargo build --release
+
+build_image:
+  stage: build
+  tags:
+    - docker
+  dependencies:
+    - build_bin
+  script:
+    - ls
