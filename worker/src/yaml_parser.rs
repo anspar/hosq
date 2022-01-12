@@ -21,6 +21,7 @@ pub struct IPFSNode{
 pub struct Config{
     pub providers: Option<Vec<Providers>>,
     pub ipfs_nodes: Option<Vec<IPFSNode>>,
+    pub retry_failed_cids_sec: Option<u64>
 }
 
 fn get_file_content(path: &String)->String{

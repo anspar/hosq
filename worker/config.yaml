@@ -1,3 +1,5 @@
+retry_failed_cids_sec: 30
+
 providers:
   - 
     contract_address: 71e7EC880873af0FE33Ad988F862bE200FdD85cC
@@ -8,7 +10,7 @@ providers:
     chain_name: private
   -
     contract_address: 3F4E941ef5071a1D09C2eB4a24DA1Fc43F76fcfF
-    provider: wss://polygon-mumbai.g.alchemy.com/v2/ZzGUefC7RQbiL7j_LCUxpU3m6SBiw0zV
+    provider: wss://polygon-mumbai.g.alchemy.com/v2/
     start_block: 23571875
     block_time_sec: 2
     update_interval_sec: 30
@@ -17,3 +19,4 @@ providers:
 ipfs_nodes:
   - 
     api_url: http://192.168.178.41:5001
+

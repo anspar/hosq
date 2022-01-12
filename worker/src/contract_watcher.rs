@@ -105,7 +105,7 @@ impl Contract {
 
 #[derive(Debug, Clone)]
 pub struct ContractService{
-    pub providers: Vec<Providers>
+    pub providers: Arc<Vec<Providers>>
 }
 
 #[rocket::async_trait]
@@ -124,7 +124,7 @@ impl Fairing for ContractService {
         let shutdown = rocket.shutdown();
         // let mut lunch = rocket.launch();
 
-        for provider in &self.providers{
+        for provider in &*self.providers{
             // let db = db.clone();
             // let r_off = shutdown.clone();
             let t_c = Contract{provider: provider.clone(), db: db.clone(), r_off: shutdown.clone()};

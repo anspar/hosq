@@ -2,6 +2,7 @@
 extern crate rocket;
 
 use std::env;
+use std::sync::Arc;
 // use types::watcher::PriceUpdate;
 // use pretty_env_logger;
 mod contract_watcher;
@@ -30,7 +31,7 @@ async fn main() {
 
     let conf = yaml_parser::get_conf(&args[1]);
     //   let pre_release = conf.pre_release;
-    let providers = conf.providers.unwrap();
+    let providers = Arc::new(conf.providers.unwrap());
     
     let contract_watcher = contract_watcher::ContractService {
         providers: providers.clone(),
@@ -38,7 +39,8 @@ async fn main() {
 
     let ipfs_watcher = ipfs_watcher::IPFSService{
         providers: providers,
-        nodes: conf.ipfs_nodes.unwrap()
+        nodes: Arc::new(conf.ipfs_nodes.unwrap()),
+        retry_failed_cids_sec: conf.retry_failed_cids_sec.unwrap()
     };
 
     let _ = rocket::build()

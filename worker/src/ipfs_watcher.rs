@@ -5,7 +5,7 @@ use web3::{Web3, transports::WebSocket};
 use crate::{DbConn, yaml_parser::{Providers}};
 use crate::yaml_parser::IPFSNode;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct EventUpdateValidBlock{
     pub chain_id: Option<i64>,
     pub cid: Option<String>, 
@@ -14,30 +14,34 @@ struct EventUpdateValidBlock{
     pub end_block: Option<i64>,
     pub block_price_gwei: Option<i64>,
     pub ts: Option<chrono::NaiveDateTime>,
+    pub node: Option<String> // used for failed pin service
 }
 
 #[derive(Clone)]
 struct IPFSWatcher{
     pub db: Arc<DbConn>,
-    pub nodes: Vec<IPFSNode>,
-    pub providers: Vec<Providers>,
-    pub r_off: rocket::Shutdown
+    pub nodes: Arc<Vec<IPFSNode>>,
+    pub providers: Arc<Vec<Providers>>,
+    pub r_off: rocket::Shutdown,
+    pub retry_failed_cids_sec: u64
 }
 
 impl IPFSWatcher {
     pub async fn watch_nodes(&self){
-        for provider in &self.providers{
+        for provider in &*self.providers{
             let chain_name = provider.chain_name.as_ref().unwrap().to_owned();
             let update_time = provider.update_interval_sec.as_ref().unwrap().to_owned();
             let transport =  web3::transports::WebSocket::new(&(provider.provider.as_ref().unwrap())).await.unwrap();
-            let web3 = Web3::new(transport);
-            let me = self.clone();
-            tokio::spawn(async move {me.pin_chain_cids(web3, chain_name, update_time).await});
+            let socket = Arc::new(Web3::new(transport));   
+            let (me, web3, cn) = (self.clone(), socket.clone(), chain_name.clone());
+            tokio::spawn(async move {me.pin_chain_cids(web3, cn, update_time).await});
             // spawn failed pins retry
+            let (me, web3) = (self.clone(), socket.clone());
+            tokio::spawn(async move {me.retry_failed_cids(web3, chain_name).await});
         }
     }
 
-    pub async fn pin_chain_cids(self, web3: Web3<WebSocket>, chain_name: String, update_time: u64){
+    pub async fn pin_chain_cids(self, web3: Arc<Web3<WebSocket>>, chain_name: String, update_time: u64){
         let chain_id = match web3.eth().chain_id().await{
             Ok(v)=>v.as_u64() as i64,
             Err(e)=>{eprintln!("Error getting chain_id for {}: {:?}", &chain_name, e); self.r_off.notify(); return}
@@ -88,7 +92,8 @@ impl IPFSWatcher {
                         donor: Option::None,
                         update_block: Option::None,
                         block_price_gwei: Option::None,
-                        ts: Option::None
+                        ts: Option::None,
+                        node: Option::None
                     })
                 }
                 Ok(rows)
@@ -98,8 +103,8 @@ impl IPFSWatcher {
                 Ok(v)=>{
                     println!("Got CIDs to pin, total: {}", v.len());
                     for cid in v{
-                        let c = (Arc::new(cid)).clone();
-                        self.pin_cid_to_ipfs_nodes(c).await;
+                        // let c = (Arc::new(cid)).clone();
+                        self.pin_cid_to_ipfs_nodes(cid).await;
                     }
                 }
                 Err(e)=>{eprintln!("{} - {} : Error getting new CIDs to Pin: {}", &chain_name, &chain_id, e)}
@@ -109,48 +114,62 @@ impl IPFSWatcher {
         }
     }
 
-    pub async fn pin_cid_to_ipfs_nodes(&self, cid_info: Arc<EventUpdateValidBlock>){
-        for node in &self.nodes{
-            let n = node.clone();
-            let c = cid_info.clone();
-            let db = self.db.clone();
-            tokio::spawn(async move {
-                let client = reqwest::Client::new();
-                let node = n.api_url.unwrap();
-                let cid = c.cid.as_ref().unwrap().to_owned();
-                let chain_id = c.chain_id.unwrap();
-                let block = c.end_block.unwrap();
-                match client.post(format!("{}/api/v0/pin/add?arg={}", &node, &cid))
-                .send()
-                .await{
-                    Ok(v)=>{
-                        if !v.status().is_success(){
-                            eprintln!("ERROR pinning cid {} to node {}", &cid, &node);
-                            add_failed_pin_to_db(db, chain_id, block, cid, node).await;
-                            return;
-                        }
-
-                        db.run(move |client|{
-                            match client.execute("INSERT INTO pinned_cids (chain_id, node, cid, end_block)
-                                                  VALUES ($1::BIGINT, $2::TEXT, $3::TEXT, $4::BIGINT)", 
-                                    &[&chain_id, &node, &cid, &block]){
-                                        Ok(_)=>{println!("PINNED {} to NODE {} on CHAIN with ID {} till block {}", &cid, &node, &chain_id, &block)}
-                                        Err(e)=>{eprintln!("ERROR inserting cid {} to pinned_cids: {}", &cid, e)}
-                                    };
-                        }).await; 
-                    }
-
-                    Err(e)=>{
-                        eprintln!("ERROR pinning cid {} to node {} : {}", &cid, &node, e);
-                        add_failed_pin_to_db(db, chain_id, block, cid, node).await;
-                    }
-                }
-            });
+    pub async fn pin_cid_to_ipfs_nodes(&self, cid_info: EventUpdateValidBlock){
+        for node in &*self.nodes{
+            let mut c = cid_info.clone();
+            c.node = node.api_url.clone();
+            pin_cid_to_node(self.db.clone(),c, true).await;
         }
     }
     
-    pub async fn watch_failed_pins(&self){
-    
+    pub async fn retry_failed_cids(self, web3: Arc<Web3<WebSocket>>, chain_name: String){
+        let chain_id = match web3.eth().chain_id().await{
+            Ok(v)=>v.as_u64() as i64,
+            Err(e)=>{eprintln!("Error getting chain_id for {}: {:?}", &chain_name, e); self.r_off.notify(); return}
+        };
+
+        loop{
+            let bn = match web3.eth().block_number().await{
+                Ok(v)=>v.as_u64() as i64,
+                Err(e)=>{eprintln!("Error getting block number for {}: {:?}", &chain_name, e); self.r_off.notify(); break}
+            };
+            let res: Result<Vec<EventUpdateValidBlock>, postgres::Error> = self.db.run(move |client|{
+                client.execute("DELETE FROM failed_pins WHERE end_block<=$1::BIGINT AND chain_id=$2::BIGINT", 
+                &[&bn, &chain_id])?;
+
+                let r = client.query("SELECT node, cid, end_block
+                                                    FROM failed_pins
+                                                    WHERE end_block>$1::BIGINT AND chain_id=$2::BIGINT", 
+                                                          &[&bn, &chain_id])?;
+                let mut rows = vec![];
+                for row in r{
+                    rows.push(EventUpdateValidBlock{
+                        chain_id: Option::Some(chain_id.clone()),
+                        node: row.get(0),
+                        cid: row.get(1),
+                        end_block: row.get(2),
+                        donor: Option::None,
+                        update_block: Option::None,
+                        block_price_gwei: Option::None,
+                        ts: Option::None
+                    })
+                }
+                Ok(rows)
+            }).await;
+            
+            match res{
+                Ok(v)=>{
+                    println!("Failed CIDs: Got CIDs to pin, total: {}", v.len());
+                    for cid in v{
+                        // let c = (Arc::new(cid)).clone();
+                        // self.pin_cid_to_ipfs_nodes(c).await;
+                        pin_cid_to_node(self.db.clone(),cid, false).await;
+                    }
+                }
+                Err(e)=>{eprintln!("Failed CIDs: {} - {} : Error getting new CIDs to Pin: {}", &chain_name, &chain_id, e)}
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(self.retry_failed_cids_sec)).await;    
+        }
     }
 }
 
@@ -165,10 +184,52 @@ async fn add_failed_pin_to_db(db: Arc<DbConn>, chain_id: i64, block: i64, cid: S
                 };
     }).await;
 }
+
+
+async fn pin_cid_to_node(db: Arc<DbConn>, c: EventUpdateValidBlock, store_failed: bool){
+    tokio::spawn(async move {
+        let client = reqwest::Client::new();
+        let node = c.node.unwrap();
+        let cid = c.cid.unwrap();
+        let chain_id = c.chain_id.unwrap();
+        let block = c.end_block.unwrap();
+        match client.post(format!("{}/api/v0/pin/add?arg={}", &node, &cid))
+        .send()
+        .await{
+            Ok(v)=>{
+                if !v.status().is_success(){
+                    eprintln!("ERROR pinning cid {} to node {}", &cid, &node);
+                    if store_failed{
+                        add_failed_pin_to_db(db, chain_id, block, cid, node).await;
+                    }
+                    return;
+                }
+
+                db.run(move |client|{
+                    match client.execute("INSERT INTO pinned_cids (chain_id, node, cid, end_block)
+                                          VALUES ($1::BIGINT, $2::TEXT, $3::TEXT, $4::BIGINT)", 
+                            &[&chain_id, &node, &cid, &block]){
+                                Ok(_)=>{println!("PINNED {} to NODE {} on CHAIN with ID {} till block {}", &cid, &node, &chain_id, &block)}
+                                Err(e)=>{eprintln!("ERROR inserting cid {} to pinned_cids: {}", &cid, e)}
+                            };
+                }).await; 
+            }
+
+            Err(e)=>{
+                eprintln!("ERROR pinning cid {} to node {} : {}", &cid, &node, e);
+                if store_failed{
+                    add_failed_pin_to_db(db, chain_id, block, cid, node).await;
+                }
+            }
+        }
+    });
+}
+
 #[derive(Debug, Clone)]
 pub struct IPFSService{
-    pub nodes: Vec<IPFSNode>,
-    pub providers: Vec<Providers>
+    pub nodes: Arc<Vec<IPFSNode>>,
+    pub providers: Arc<Vec<Providers>>,
+    pub retry_failed_cids_sec: u64
 }
 
 #[rocket::async_trait]
@@ -191,13 +252,14 @@ impl Fairing for IPFSService {
             db: db.clone(),
             nodes: (&self).nodes.clone(),
             providers: (&self).providers.clone(),
-            r_off: rocket.shutdown().clone()
+            r_off: rocket.shutdown().clone(),
+            retry_failed_cids_sec: (&self).retry_failed_cids_sec.clone()
         });
 
         let nw1 = node_watcher.clone();
         tokio::spawn(async move {nw1.watch_nodes().await});
 
-        node_watcher.watch_failed_pins().await;
+        // node_watcher.watch_failed_pins().await;
 
         // spawn unpin tasks
 
