@@ -34,13 +34,14 @@ impl Contract {
                                 .unwrap();
             let r: i64 = match r.try_get(0){
                 Ok(v)=>v,
-                Err(e)=>{let b = me.provider.start_block.unwrap(); eprintln!("{:?}\nNo block data in db, will start watching from block {}", e, &b); b}
+                Err(e)=>{let b = me.provider.start_block; eprintln!("{:?}\nNo block data in db, will start watching from block {}", e, &b); b}
             };
             r
         }).await;
         // println!("{:?}", (*db).query_one("SELECT count(*) from nfts", &[]).await.unwrap());
-    
-        let contarct_address = H160::from_str((&self).provider.contract_address.as_ref().unwrap()).unwrap();
+        let provider_id = (&self).provider.id;
+
+        let contarct_address = H160::from_str(&(&self).provider.contract_address).unwrap();
         let topic_price_update_hash =
             keccak256(&(b"UpdateValidBlock(address,uint256,uint256,string)"[..]));
         let topic_price_update = H256::from_slice(&topic_price_update_hash);
@@ -56,7 +57,7 @@ impl Contract {
         let logs = web3.eth().logs(filter.clone()).await.unwrap();
         for l in logs{
             // println!("{:?} - {:?}", l, l.data.0.len());
-            db::update_valid_block((&self).db.clone(), l, chain_id).await;
+            db::update_valid_block((&self).db.clone(), l, chain_id, provider_id).await;
         }
         // let web3 = Web3::new(&*web3);
         
@@ -68,7 +69,7 @@ impl Contract {
         e.for_each(|event| async {
             let _ = match event {
                 Ok(l)=>{
-                    db::update_valid_block((&self).db.clone(), l, chain_id).await;
+                    db::update_valid_block((&self).db.clone(), l, chain_id, provider_id).await;
                 }
                 Err(e)=>{eprintln!("watch_update_valid_block data: Error parsing Log {:?}", e)}
             }; 
@@ -78,7 +79,7 @@ impl Contract {
     }
 
     pub async fn watch_contract(self){
-        let provider_url = (&self).provider.provider.as_ref().unwrap().to_owned();
+        let provider_url = &(&self).provider.provider;
         let transport =  web3::transports::WebSocket::new(&provider_url).await.unwrap();
 
         let web3 = Arc::new(Web3::new(transport));
@@ -88,7 +89,7 @@ impl Contract {
         tokio::spawn(async move { me.watch_update_valid_block(w1).await });
 
         let (w2, cn1, off) = (web3.clone(), 
-                                                               (&self).provider.chain_name.as_ref().unwrap().clone(), self.r_off.clone());                                                            
+                                                               (&self).provider.chain_name.clone(), self.r_off.clone());                                                            
         tokio::spawn(async move {
             loop{
                 let bn = match w2.eth().block_number().await{
@@ -96,7 +97,7 @@ impl Contract {
                     Err(e)=>{eprintln!("Error getting block number: {:?}", e); off.notify(); break}
                 };
                 println!("{} : socket is alive at block {}", cn1, bn);
-                tokio::time::sleep(tokio::time::Duration::from_secs(self.provider.update_interval_sec.unwrap())).await;    
+                tokio::time::sleep(tokio::time::Duration::from_secs(self.provider.update_interval_sec)).await;    
             }
         });
     }

@@ -1,3 +1,4 @@
+drop table if exists event_update_valid_block;
 create table event_update_valid_block
 (
     chain_id bigint not null,
@@ -5,11 +6,12 @@ create table event_update_valid_block
     donor text not null,
     update_block bigint not null,
     end_block bigint not null,
-    block_price_gwei bigint not null,
+    -- provider_id bigint not null,
     ts timestamp without time zone,
-    primary key (update_block, donor, end_block, block_price_gwei, cid, chain_id)
+    primary key (update_block, donor, end_block, cid, chain_id)
 );
 
+drop table if exists pinned_cids;
 create table pinned_cids
 (
     chain_id bigint not null,
@@ -19,6 +21,7 @@ create table pinned_cids
     primary key (chain_id, node, cid, end_block)
 );
 
+drop table if exists failed_pins;
 create table failed_pins
 (
     chain_id bigint not null,

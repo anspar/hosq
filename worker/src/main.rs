@@ -32,14 +32,15 @@ async fn main() {
     let conf = yaml_parser::get_conf(&args[1]);
     //   let pre_release = conf.pre_release;
     let providers = Arc::new(conf.providers.unwrap());
+    let nodes = Arc::new(conf.ipfs_nodes.unwrap());
     
     let contract_watcher = contract_watcher::ContractService {
         providers: providers.clone(),
     };
 
     let ipfs_watcher = ipfs_watcher::IPFSService{
-        providers: providers,
-        nodes: Arc::new(conf.ipfs_nodes.unwrap()),
+        providers,
+        nodes,
         retry_failed_cids_sec: conf.retry_failed_cids_sec.unwrap()
     };
 

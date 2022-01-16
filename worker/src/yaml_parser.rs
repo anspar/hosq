@@ -3,17 +3,18 @@ use serde::{self, Deserialize};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Providers{
-    pub contract_address: Option<String>,
-    pub provider: Option<String>,
-    pub chain_name: Option<String>,
-    pub start_block: Option<i64>,
+    pub contract_address: String,
+    pub provider: String,
+    pub chain_name: String,
+    pub start_block: i64,
     pub block_time_sec: Option<u64>,
-    pub update_interval_sec: Option<u64>,
+    pub update_interval_sec: u64,
+    pub id: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct IPFSNode{
-    pub api_url: Option<String>,
+    pub api_url: String,
     pub login: Option<String>,
     pub password: Option<String>,
 }
