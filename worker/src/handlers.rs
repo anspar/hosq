@@ -34,7 +34,7 @@ pub async fn upload_file(
         None => {
             return Err(Custom(
                 Status::BadRequest,
-                Json("Internal Error".to_owned()),
+                Json("Internal Error, Unsupported chain".to_owned()),
             ))
         }
     };
@@ -72,7 +72,7 @@ pub async fn upload_file(
     .part("path", reqwest::multipart::Part::stream(bytes).file_name(name));
     
     let req = reqwest::Client::new()
-    .post(format!("{}/api/v0/add?progress=true", nodes[rng].api_url))
+    .post(format!("{}/api/v0/add?progress=true&pin=false", nodes[rng].api_url))
     .header("Content-Disposition", "form-data")
     .multipart(form);
 
@@ -96,8 +96,10 @@ pub async fn upload_file(
             }
             // info!("{:?}", chunk.hash);
             let cid = chunk.hash.as_ref().unwrap().clone();
-            let result: Result<(), postgres::Error> = psql.run(move|client|{
-                // todo check if cid exists, don't insert if does.
+            let result: Result<bool, postgres::Error> = psql.run(move|client|{
+                if db::cid_exists(client, &cid)?{
+                    return Ok(false);
+                }
                 db::add_valid_block(client, types::db::EventUpdateValidBlock{
                     chain_id,
                     cid,
@@ -105,10 +107,14 @@ pub async fn upload_file(
                     update_block,
                     end_block,
                     manual_add: Option::Some(true),
-                })
+                })?;
+                Ok(true)
             }).await;
             match result{
-                Ok(_)=>{yield Event::json(&chunk);}
+                Ok(v)=>{
+                    chunk.first_import = Option::Some(v);
+                    yield Event::json(&chunk);
+                }
                 Err(e)=>{error!("Error Uploading {}", e); yield Event::data("Internal Error");}
             };
 

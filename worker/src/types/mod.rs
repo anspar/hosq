@@ -18,7 +18,8 @@ pub struct IPFSAddResponse{
     #[serde(alias = "Size")]
     pub size: Option<String>,
     #[serde(alias = "Bytes")]
-    pub bytes: Option<u64>
+    pub bytes: Option<u64>,
+    pub first_import: Option<bool>
 }
 
 impl IPFSAddResponse{
@@ -27,7 +28,8 @@ impl IPFSAddResponse{
             name: "".to_owned(),
             hash: Option::None,
             size: Option::None,
-            bytes: Option::None
+            bytes: Option::None,
+            first_import: Option::None
         }
     }
 }

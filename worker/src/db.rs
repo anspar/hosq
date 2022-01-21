@@ -66,3 +66,24 @@ pub fn add_valid_block(client: &mut postgres::Client, event: EventUpdateValidBlo
     // tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
     // println!("from db {}, {}, {}", cid, chain_id, doner);
 }
+
+pub fn cid_exists(client: &mut postgres::Client, cid: &str)->Result<bool, postgres::Error>{
+    let row = client.query_one("
+                    SELECT count(cid) FROM event_update_valid_block WHERE cid=$1::TEXT;
+                ",
+                    &[&cid]
+                )?;
+    
+    let count: i64 = row.try_get(0)?;
+    if count>0{
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub fn get_max_update_block(client: &mut postgres::Client, table: String, chain_id: i64)-> Result<i64, postgres::Error>{
+    let row = client.query_one(&format!("SELECT MAX(update_block) FROM {} WHERE chain_id=$1::BIGINT", table), 
+    &[&chain_id])?;
+    let maxb: i64 = row.try_get(0)?;
+    Ok(maxb)
+}
