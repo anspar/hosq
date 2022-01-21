@@ -1,15 +1,16 @@
-use std::io::Read;
+use std::{io::Read};
 use serde::{self, Deserialize};
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct Providers{
+pub struct Provider{
     pub contract_address: String,
     pub provider: String,
     pub chain_name: String,
     pub start_block: i64,
-    pub block_time_sec: Option<u64>,
+    pub block_time_sec: u64,
     pub update_interval_sec: u64,
-    pub id: u64,
+    pub provider_id: i64,
+    pub keep_alive: Option<bool>
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -20,7 +21,7 @@ pub struct IPFSNode{
 }
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config{
-    pub providers: Option<Vec<Providers>>,
+    pub providers: Option<Vec<Provider>>,
     pub ipfs_nodes: Option<Vec<IPFSNode>>,
     pub retry_failed_cids_sec: Option<u64>
 }

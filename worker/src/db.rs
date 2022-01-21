@@ -1,14 +1,13 @@
-use std::{sync::Arc};
-
+use std::{error::Error, sync::Arc};
 // use tokio_postgres::Client;
 use web3::types::{Log, H160, U256};
 // use web3::helpers::to_string as w3ts;
-use crate::DbConn;
+use crate::types::{DbConn, db::EventUpdateValidBlock, errors::CustomError};
 
-fn abi_slice_to_string(b: &[u8])->Result<String, String>{
+fn abi_slice_to_string(b: &[u8])->Result<String, CustomError>{
     // println!("{:?}", b);
     // let offset = U256::from_big_endian(&b[..32]).as_u64();
-    if b.len()<=64 {return Err("Invalid abi encoded string".to_owned())}
+    if b.len()<=64 {return Err(CustomError::InvalidAbiString)}
     let mut length = U256::from_big_endian(&b[32..64]).as_u64();
     let mut s = "".to_owned();
     for c in &b[64..]{
@@ -20,37 +19,50 @@ fn abi_slice_to_string(b: &[u8])->Result<String, String>{
     Ok(s)
 }
 
-pub async fn update_valid_block(db: Arc<DbConn>, l: Log, chain_id: u64, provider_id: u64) -> bool {
+pub async fn update_valid_block(db: Arc<DbConn>, l: Log, chain_id: i64, provider_id: i64) -> Result<(),  Box<dyn Error>> {
     if l.data.0.len()<96{
-        eprintln!("update_valid_block: data len {:?} !>= 96", l.data.0.len());
-        return false
+        error!("update_valid_block: data len {:?} !>= 96", l.data.0.len());
+        return Err(Box::new(CustomError::Inequality))
     }
 
     // let block: i64 = l.block_number.unwrap().low_u64().try_into().unwrap();
-    let p_id = U256::from_big_endian(&l.data.0[64..96]).as_u64();
-    if p_id!=provider_id{return false}
+    let p_id = U256::from_big_endian(&l.data.0[64..96]).as_u64() as i64;
+    if p_id!=provider_id{return Err(Box::new(CustomError::Inequality))}
 
-    let donor = H160::from_slice(&l.data.0[12..32]);
+    let donor = format!("{:?}", H160::from_slice(&l.data.0[12..32]));
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
     let end_block = U256::from_big_endian(&l.data.0[32..64]).as_u64() as i64;
-    let cid = match abi_slice_to_string(&l.data.0[96..]){
-        Ok(v)=>v,
-        Err(e)=>{eprintln!("error parsing CID : {:?}", e); return false}
-    };
+    let cid = abi_slice_to_string(&l.data.0[96..])?;
    
-    println!("{} -> update_valid_block :: {:?}, {:?}, {:?}, {:?}, {:?} :: {:?}", &chain_id, &donor, &update_block, &end_block, &p_id, &cid, &l.data.0.len());
+    info!("{} -> GOT 'update_valid_block' Event :: {:?}, {:?}, {:?}, {:?}, {:?} :: {:?}", &chain_id, &donor, &update_block, &end_block, &p_id, &cid, &l.data.0.len());
 
-    db.run(move|client|{
-        match client.execute(
-            "
-            INSERT INTO event_update_valid_block ( donor, update_block, end_block, cid, chain_id, ts) 
-            values ( LOWER($1::TEXT), $2::BIGINT, $3::BIGINT, $4::TEXT, $5::BIGINT, NOW())
-            ON CONFLICT (donor, update_block, end_block, cid, chain_id) DO NOTHING
-        ",
-            &[&format!("{:?}", donor), &update_block, &end_block, &cid, &(chain_id as i64)]
-        ){
-            Ok(_)=>return true,
-            Err(e)=>{eprintln!("Error inserting update_valid_block: {:?}", e); return false}
-        };
-    }).await
+    let res: Result<_, postgres::Error> = db.run(move|client|{
+        add_valid_block(client, EventUpdateValidBlock{
+           chain_id,
+           cid,
+           donor,
+           update_block,
+           end_block,
+           manual_add: Option::Some(false)
+        })
+    }).await;
+
+    match res {
+        Ok(_)=>Ok(()),
+        Err(e)=>Err(Box::new(e))
+    }
+}
+
+pub fn add_valid_block(client: &mut postgres::Client, event: EventUpdateValidBlock)->Result<(), postgres::Error>{
+    client.execute("
+                    INSERT INTO event_update_valid_block ( donor, update_block, end_block, cid, chain_id, manual_add) 
+                    values ( LOWER($1::TEXT), $2::BIGINT, $3::BIGINT, $4::TEXT, $5::BIGINT, $6::BOOLEAN)
+                    ON CONFLICT (donor, update_block, end_block, cid, chain_id, manual_add) DO NOTHING
+                ",
+                    &[&event.donor, &event.update_block, &event.end_block, &event.cid, &event.chain_id, &event.manual_add]
+                )?;
+    Ok(())
+
+    // tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+    // println!("from db {}, {}, {}", cid, chain_id, doner);
 }

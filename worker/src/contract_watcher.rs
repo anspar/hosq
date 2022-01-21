@@ -4,28 +4,26 @@ use std::sync::Arc;
 use rocket::futures::StreamExt;
 use rocket::{Rocket, Orbit, tokio};
 use rocket::fairing::{Fairing, Info, Kind};
-use web3::Web3;
 use web3::signing::keccak256;
-use web3::transports::WebSocket;
 use web3::types::{H160, H256, FilterBuilder, BlockNumber, U64};
-use crate::DbConn;
-use crate::yaml_parser::Providers;
+use crate::types::{self, DbConn};
+// use crate::yaml_parser::Providers;
 
-#[path="./db.rs"]
-mod db;
+use crate::db;
 
 #[derive(Clone)]
 pub struct Contract{
-    provider: Providers,
+    provider: types::Web3Node,
     db: Arc<DbConn>,
     r_off: rocket::Shutdown
 }
 
 impl Contract {
-    async fn watch_update_valid_block(self, web3: Arc<Web3<WebSocket>>) {
+    async fn watch_update_valid_block(self) {
+        let web3 = self.provider.web3.clone();
         let chain_id = match web3.eth().chain_id().await{
-            Ok(v)=>v.as_u64(),
-            Err(e)=>{eprintln!("Error getting chain_id: {:?}", e); return}
+            Ok(v)=>v.as_u64() as i64,
+            Err(e)=>{error!("Error getting chain_id: {:?}", e); return}
         };
 
         let me = self.clone();
@@ -34,12 +32,12 @@ impl Contract {
                                 .unwrap();
             let r: i64 = match r.try_get(0){
                 Ok(v)=>v,
-                Err(e)=>{let b = me.provider.start_block; eprintln!("{:?}\nNo block data in db, will start watching from block {}", e, &b); b}
+                Err(e)=>{let b = me.provider.start_block; error!("{:?}\nNo block data in db, will start watching from block {}", e, &b); b}
             };
             r
         }).await;
         // println!("{:?}", (*db).query_one("SELECT count(*) from nfts", &[]).await.unwrap());
-        let provider_id = (&self).provider.id;
+        let provider_id = (&self).provider.provider_id;
 
         let contarct_address = H160::from_str(&(&self).provider.contract_address).unwrap();
         let topic_price_update_hash =
@@ -52,12 +50,12 @@ impl Contract {
             .build();
 
         
-        println!("Starting watch_update_valid_block event listener for chain - {} from block - {}", &chain_id, &block);
+        info!("Starting watch_update_valid_block event listener for chain - {} from block - {}", &chain_id, &block);
         
         let logs = web3.eth().logs(filter.clone()).await.unwrap();
         for l in logs{
             // println!("{:?} - {:?}", l, l.data.0.len());
-            db::update_valid_block((&self).db.clone(), l, chain_id, provider_id).await;
+            db::update_valid_block((&self).db.clone(), l, chain_id, provider_id).await.unwrap();
         }
         // let web3 = Web3::new(&*web3);
         
@@ -69,9 +67,9 @@ impl Contract {
         e.for_each(|event| async {
             let _ = match event {
                 Ok(l)=>{
-                    db::update_valid_block((&self).db.clone(), l, chain_id, provider_id).await;
+                    db::update_valid_block((&self).db.clone(), l, chain_id, provider_id).await.unwrap();
                 }
-                Err(e)=>{eprintln!("watch_update_valid_block data: Error parsing Log {:?}", e)}
+                Err(e)=>{error!("watch_update_valid_block data: Error parsing Log {:?}", e)}
             }; 
             
         })
@@ -79,35 +77,32 @@ impl Contract {
     }
 
     pub async fn watch_contract(self){
-        let provider_url = &(&self).provider.provider;
-        let transport =  web3::transports::WebSocket::new(&provider_url).await.unwrap();
+        // let provider_url = &(&self).provider.provider;
+        // let transport =  web3::transports::WebSocket::new(&provider_url).await.unwrap();
 
-        let web3 = Arc::new(Web3::new(transport));
+        // let web3 = Arc::new(Web3::new(transport));
         // let contarct_address = Arc::new(H160::from_str(&(&self).provider.contract_address.as_ref().unwrap()).unwrap());
 
-        let (w1, me) = (web3.clone(), self.clone());
-        tokio::spawn(async move { me.watch_update_valid_block(w1).await });
+        let me = self.clone();
+        tokio::spawn(async move { me.watch_update_valid_block().await });
 
-        let (w2, cn1, off) = (web3.clone(), 
-                                                               (&self).provider.chain_name.clone(), self.r_off.clone());                                                            
-        tokio::spawn(async move {
-            loop{
-                let bn = match w2.eth().block_number().await{
-                    Ok(v)=>v.as_u64(),
-                    Err(e)=>{eprintln!("Error getting block number: {:?}", e); off.notify(); break}
-                };
-                println!("{} : socket is alive at block {}", cn1, bn);
-                tokio::time::sleep(tokio::time::Duration::from_secs(self.provider.update_interval_sec)).await;    
-            }
-        });
+        // let (w2, cn1, off) = (web3.clone(), (&self).provider.chain_name.clone(), self.r_off.clone());                                                            
+        // tokio::spawn(async move {
+        //     loop{
+        //         let bn = match w2.eth().block_number().await{
+        //             Ok(v)=>v.as_u64(),
+        //             Err(e)=>{eprintln!("Error getting block number: {:?}", e); off.notify(); break}
+        //         };
+        //         println!("{} : socket is alive at block {}", cn1, bn);
+        //         tokio::time::sleep(tokio::time::Duration::from_secs(self.provider.update_interval_sec)).await;    
+        //     }
+        // });
     }
 }
 
 
 #[derive(Debug, Clone)]
-pub struct ContractService{
-    pub providers: Arc<Vec<Providers>>
-}
+pub struct ContractService;
 
 #[rocket::async_trait]
 impl Fairing for ContractService {
@@ -123,9 +118,11 @@ impl Fairing for ContractService {
                             .expect("database mounted."));
 
         let shutdown = rocket.shutdown();
+        let providers = rocket.state::<Arc<Vec<types::Web3Node>>>().unwrap().clone();
+
         // let mut lunch = rocket.launch();
 
-        for provider in &*self.providers{
+        for provider in &*providers{
             // let db = db.clone();
             // let r_off = shutdown.clone();
             let t_c = Contract{provider: provider.clone(), db: db.clone(), r_off: shutdown.clone()};

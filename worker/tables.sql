@@ -6,9 +6,10 @@ create table event_update_valid_block
     donor text not null,
     update_block bigint not null,
     end_block bigint not null,
+    manual_add boolean default false,
     -- provider_id bigint not null,
-    ts timestamp without time zone,
-    primary key (update_block, donor, end_block, cid, chain_id)
+    -- ts timestamp without time zone,
+    primary key (update_block, donor, end_block, cid, chain_id, manual_add)
 );
 
 drop table if exists pinned_cids;

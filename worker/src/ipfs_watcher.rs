@@ -2,7 +2,7 @@ use std::sync::Arc;
 use rocket::{fairing::{Fairing, Info, Kind}, tokio, Orbit, Rocket};
 use web3::{Web3, transports::WebSocket};
 
-use crate::{DbConn, yaml_parser::{Providers}};
+use crate::{types::{self, DbConn}};
 use crate::yaml_parser::IPFSNode;
 
 #[derive(Debug, Clone)]
@@ -19,7 +19,7 @@ struct CIDInfo{
 struct IPFSWatcher{
     pub db: Arc<DbConn>,
     pub nodes: Arc<Vec<IPFSNode>>,
-    pub providers: Arc<Vec<Providers>>,
+    pub providers: Arc<Vec<types::Web3Node>>,
     pub r_off: rocket::Shutdown,
     pub retry_failed_cids_sec: u64
 }
@@ -29,8 +29,7 @@ impl IPFSWatcher {
         for provider in &*self.providers{
             let chain_name = provider.chain_name.to_owned();
             let update_time = provider.update_interval_sec;
-            let transport =  web3::transports::WebSocket::new(&(provider.provider)).await.unwrap();
-            let socket = Arc::new(Web3::new(transport));   
+            let socket = provider.web3.clone();  
             let (me, web3, cn, un) = (self.clone(), socket.clone(), chain_name.clone(), update_time.clone());
             tokio::spawn(async move {me.pin_chain_cids(web3, cn, un).await});
             // spawn failed pins retry
@@ -46,13 +45,13 @@ impl IPFSWatcher {
     pub async fn pin_chain_cids(self, web3: Arc<Web3<WebSocket>>, chain_name: String, update_time: u64){
         let chain_id = match web3.eth().chain_id().await{
             Ok(v)=>v.as_u64() as i64,
-            Err(e)=>{eprintln!("Error getting chain_id for {}: {:?}", &chain_name, e); self.r_off.notify(); return}
+            Err(e)=>{error!("Error getting chain_id for {}: {:?}", &chain_name, e); self.r_off.notify(); return}
         };
         
         loop{
             let bn = match web3.eth().block_number().await{
                 Ok(v)=>v.as_u64() as i64,
-                Err(e)=>{eprintln!("Error getting block number for {}: {:?}", &chain_name, e); self.r_off.notify(); break}
+                Err(e)=>{error!("Error getting block number for {}: {:?}", &chain_name, e); self.r_off.notify(); break}
             };
             let cn = chain_name.clone();
             let cids_to_pin: Result<Vec<CIDInfo>, postgres::Error> = self.db.run(move |client|{
@@ -63,7 +62,7 @@ impl IPFSWatcher {
                                                     WHERE euvb.end_block>$1::BIGINT AND euvb.chain_id=$2::BIGINT;", 
                                                     &[&bn, &chain_id])?; // get pinned cids with updated block number
                 
-                println!("{} - {} : Updating end block number for pinned CIDs, total: {} ...", &cn, &chain_id, r.len());
+                info!("{} - {} : Updating end block number for pinned CIDs, total: {} ...", &cn, &chain_id, r.len());
                 for row in r{
                     let cid: String = row.get(0);
                     let end_block: i64 = row.get(1);
@@ -97,13 +96,13 @@ impl IPFSWatcher {
 
             match cids_to_pin{
                 Ok(v)=>{
-                    println!("Got CIDs to pin, total: {}", v.len());
+                    info!("Got CIDs to pin, total: {}", v.len());
                     for cid in v{
                         // let c = (Arc::new(cid)).clone();
                         self.pin_cid_to_ipfs_nodes(cid, true).await;
                     }
                 }
-                Err(e)=>{eprintln!("{} - {} : Error getting new CIDs to Pin: {}", &chain_name, &chain_id, e)}
+                Err(e)=>{error!("{} - {} : Error getting new CIDs to Pin: {}", &chain_name, &chain_id, e)}
             }
 
             tokio::time::sleep(tokio::time::Duration::from_secs(update_time)).await;    
@@ -130,13 +129,13 @@ impl IPFSWatcher {
     pub async fn retry_failed_cids(self, web3: Arc<Web3<WebSocket>>, chain_name: String){
         let chain_id = match web3.eth().chain_id().await{
             Ok(v)=>v.as_u64() as i64,
-            Err(e)=>{eprintln!("Error getting chain_id for {}: {:?}", &chain_name, e); self.r_off.notify(); return}
+            Err(e)=>{error!("Error getting chain_id for {}: {:?}", &chain_name, e); self.r_off.notify(); return}
         };
 
         loop{
             let bn = match web3.eth().block_number().await{
                 Ok(v)=>v.as_u64() as i64,
-                Err(e)=>{eprintln!("Error getting block number for {}: {:?}", &chain_name, e); self.r_off.notify(); break}
+                Err(e)=>{error!("Error getting block number for {}: {:?}", &chain_name, e); self.r_off.notify(); break}
             };
             let res: Result<Vec<CIDInfo>, postgres::Error> = self.db.run(move |client|{
                 client.execute("DELETE FROM failed_pins WHERE end_block<=$1::BIGINT AND chain_id=$2::BIGINT", 
@@ -162,14 +161,14 @@ impl IPFSWatcher {
             
             match res{
                 Ok(v)=>{
-                    println!("Failed CIDs: Got CIDs to pin, total: {}", v.len());
+                    info!("Failed CIDs: Got CIDs to pin, total: {}", v.len());
                     for cid in v{
                         // let c = (Arc::new(cid)).clone();
                         // self.pin_cid_to_ipfs_nodes(c).await;
                         pin_cid_to_node(self.db.clone(),cid, false).await;
                     }
                 }
-                Err(e)=>{eprintln!("Failed CIDs: {} - {} : Error getting new CIDs to Pin: {}", &chain_name, &chain_id, e)}
+                Err(e)=>{error!("Failed CIDs: {} - {} : Error getting new CIDs to Pin: {}", &chain_name, &chain_id, e)}
             }
             tokio::time::sleep(tokio::time::Duration::from_secs(self.retry_failed_cids_sec)).await;    
         }
@@ -178,20 +177,20 @@ impl IPFSWatcher {
     pub async fn unpin_cids(self, web3: Arc<Web3<WebSocket>>, chain_name: String, update_time: u64){
         let chain_id = match web3.eth().chain_id().await{
             Ok(v)=>v.as_u64() as i64,
-            Err(e)=>{eprintln!("Error getting chain_id for {}: {:?}", &chain_name, e); self.r_off.notify(); return}
+            Err(e)=>{error!("Error getting chain_id for {}: {:?}", &chain_name, e); self.r_off.notify(); return}
         };
         
         loop{
             let bn = match web3.eth().block_number().await{
                 Ok(v)=>v.as_u64() as i64,
-                Err(e)=>{eprintln!("Error getting block number for {}: {:?}", &chain_name, e); self.r_off.notify(); break}
+                Err(e)=>{error!("Error getting block number for {}: {:?}", &chain_name, e); self.r_off.notify(); break}
             };
             let cids_to_unpin: Result<Vec<CIDInfo>, postgres::Error> = self.db.run(move |client|{
                 let res = client.execute("DELETE FROM pinned_cids AS p1
                                                     USING pinned_cids AS p2
                                                     WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT AND p1.chain_id!=p2.chain_id AND p1.cid=p2.cid;",
                                      &[&chain_id, &bn])?;
-                println!("DELETED '{}' expired CIDs for this '{}' chain", res, &chain_id);
+                info!("DELETED '{}' expired CIDs for this '{}' chain", res, &chain_id);
 
                 let res = client.query("SELECT p1.cid, p1.end_block, p1.node From pinned_cids AS p1
                                                         INNER JOIN pinned_cids p2 ON p1.chain_id!=p2.chain_id AND p1.cid!=p2.cid
@@ -215,13 +214,13 @@ impl IPFSWatcher {
 
             match cids_to_unpin{
                 Ok(v)=>{
-                    println!("Got CIDs to unpin, total: {}", v.len());
+                    info!("Got CIDs to unpin, total: {}", v.len());
                     for cid in v{
                         // let c = (Arc::new(cid)).clone();
                         self.pin_cid_to_ipfs_nodes(cid, false).await;
                     }
                 }
-                Err(e)=>{eprintln!("{} - {} : Error getting new CIDs to unpin: {}", &chain_name, &chain_id, e)}
+                Err(e)=>{error!("{} - {} : Error getting new CIDs to unpin: {}", &chain_name, &chain_id, e)}
             }
             tokio::time::sleep(tokio::time::Duration::from_secs(update_time)).await;    
         }
@@ -235,8 +234,8 @@ async fn add_failed_pin_to_db(db: Arc<DbConn>, chain_id: i64, block: i64, cid: S
                                     VALUES ($1::BIGINT, $2::TEXT, $3::TEXT, $4::BIGINT)
                                     ON CONFLICT (chain_id, node, cid, end_block) DO NOTHING", 
                 &[&chain_id, &node, &cid, &block]){
-                    Ok(_)=>{println!("failed_pins TABLE ADD {} for NODE {} on CHAIN with ID {} till block {}", &cid, &node, &chain_id, &block)}
-                    Err(e)=>{eprintln!("ERROR inserting cid {} to failed_pins: {}", &cid, e)}
+                    Ok(_)=>{info!("failed_pins TABLE ADD {} for NODE {} on CHAIN with ID {} till block {}", &cid, &node, &chain_id, &block)}
+                    Err(e)=>{error!("ERROR inserting cid {} to failed_pins: {}", &cid, e)}
                 };
     }).await;
 }
@@ -254,7 +253,7 @@ async fn pin_cid_to_node(db: Arc<DbConn>, c: CIDInfo, store_failed: bool){
         .await{
             Ok(v)=>{
                 if !v.status().is_success(){
-                    eprintln!("ERROR pinning cid {} to node {}", &cid, &node);
+                    error!("ERROR pinning cid {} to node {}", &cid, &node);
                     if store_failed{
                         add_failed_pin_to_db(db, chain_id, block, cid, node).await;
                     }
@@ -265,14 +264,14 @@ async fn pin_cid_to_node(db: Arc<DbConn>, c: CIDInfo, store_failed: bool){
                     match client.execute("INSERT INTO pinned_cids (chain_id, node, cid, end_block)
                                           VALUES ($1::BIGINT, $2::TEXT, $3::TEXT, $4::BIGINT)", 
                             &[&chain_id, &node, &cid, &block]){
-                                Ok(_)=>{println!("PINNED {} to NODE {} on CHAIN with ID {} till block {}", &cid, &node, &chain_id, &block)}
-                                Err(e)=>{eprintln!("ERROR inserting cid {} to pinned_cids: {}", &cid, e)}
+                                Ok(_)=>{info!("PINNED {} to NODE {} on CHAIN with ID {} till block {}", &cid, &node, &chain_id, &block)}
+                                Err(e)=>{error!("ERROR inserting cid {} to pinned_cids: {}", &cid, e)}
                             };
                 }).await; 
             }
 
             Err(e)=>{
-                eprintln!("ERROR pinning cid {} to node {} : {}", &cid, &node, e);
+                error!("ERROR pinning cid {} to node {} : {}", &cid, &node, e);
                 if store_failed{
                     add_failed_pin_to_db(db, chain_id, block, cid, node).await;
                 }
@@ -293,7 +292,7 @@ async fn unpin_cid_from_node(db: Arc<DbConn>, c: CIDInfo){
         .await{
             Ok(v)=>{
                 if !v.status().is_success(){
-                    eprintln!("ERROR unpinning cid {} from node {}", &cid, &node);
+                    error!("ERROR unpinning cid {} from node {}", &cid, &node);
                     return;
                 }
 
@@ -301,14 +300,14 @@ async fn unpin_cid_from_node(db: Arc<DbConn>, c: CIDInfo){
                     match client.execute("DELETE FROM pinned_cids
                                                 WHERE chain_id=$1::BIGINT AND node=$2::TEXT AND cid=$3::TEXT AND end_block=$4::BIGINT);", 
                                         &[&chain_id, &node, &cid, &block]){
-                                Ok(_)=>{println!("UNPINNED {} from NODE {} on CHAIN with ID {}", &cid, &node, &chain_id)}
-                                Err(e)=>{eprintln!("ERROR deleting cid {} from pinned_cids: {}", &cid, e)}
+                                Ok(_)=>{info!("UNPINNED {} from NODE {} on CHAIN with ID {}", &cid, &node, &chain_id)}
+                                Err(e)=>{error!("ERROR deleting cid {} from pinned_cids: {}", &cid, e)}
                             };
                 }).await; 
             }
 
             Err(e)=>{
-                eprintln!("ERROR unpinning cid {} from node {} : {}", &cid, &node, e);
+                error!("ERROR unpinning cid {} from node {} : {}", &cid, &node, e);
             }
         }
     });
@@ -316,8 +315,6 @@ async fn unpin_cid_from_node(db: Arc<DbConn>, c: CIDInfo){
 
 #[derive(Debug, Clone)]
 pub struct IPFSService{
-    pub nodes: Arc<Vec<IPFSNode>>,
-    pub providers: Arc<Vec<Providers>>,
     pub retry_failed_cids_sec: u64
 }
 
@@ -334,13 +331,16 @@ impl Fairing for IPFSService {
         let db = Arc::new(DbConn::get_one(&rocket).await
                             .expect("database mounted."));
 
+        let nodes = rocket.state::<Arc<Vec<IPFSNode>>>().unwrap();
+        let providers = rocket.state::<Arc<Vec<types::Web3Node>>>().unwrap();
+    
         // let shutdown = rocket.shutdown();
         
         // let (db1, nodes, r_off) = (db.clone(), (&self).nodes.clone(), shutdown.clone());
         let node_watcher = Arc::new(IPFSWatcher{
             db: db.clone(),
-            nodes: (&self).nodes.clone(),
-            providers: (&self).providers.clone(),
+            nodes: nodes.clone(),
+            providers: providers.clone(),
             r_off: rocket.shutdown().clone(),
             retry_failed_cids_sec: (&self).retry_failed_cids_sec.clone()
         });
