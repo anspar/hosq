@@ -1,70 +1,13 @@
-use std::{error::Error, sync::Arc};
-// use tokio_postgres::Client;
-use web3::types::{Log, H160, U256};
-// use web3::helpers::to_string as w3ts;
-use crate::types::{DbConn, db::EventUpdateValidBlock, errors::CustomError};
+use crate::types::{db::EventUpdateValidBlock, CIDInfo};
 
-fn abi_slice_to_string(b: &[u8])->Result<String, CustomError>{
-    // println!("{:?}", b);
-    // let offset = U256::from_big_endian(&b[..32]).as_u64();
-    if b.len()<=64 {return Err(CustomError::InvalidAbiString)}
-    let mut length = U256::from_big_endian(&b[32..64]).as_u64();
-    let mut s = "".to_owned();
-    for c in &b[64..]{
-        if length==0 {break}
-        if *c==0 {continue} 
-        s = format!("{}{}", s, &(*c as char));
-        length-=1;
-    }
-    Ok(s)
-}
-
-pub async fn update_valid_block(db: Arc<DbConn>, l: Log, chain_id: i64, provider_id: i64) -> Result<(),  Box<dyn Error>> {
-    if l.data.0.len()<96{
-        error!("update_valid_block: data len {:?} !>= 96", l.data.0.len());
-        return Err(Box::new(CustomError::Inequality))
-    }
-
-    // let block: i64 = l.block_number.unwrap().low_u64().try_into().unwrap();
-    let p_id = U256::from_big_endian(&l.data.0[64..96]).as_u64() as i64;
-    if p_id!=provider_id{return Err(Box::new(CustomError::Inequality))}
-
-    let donor = format!("{:?}", H160::from_slice(&l.data.0[12..32]));
-    let update_block = (&l.block_number.unwrap()).as_u64() as i64;
-    let end_block = U256::from_big_endian(&l.data.0[32..64]).as_u64() as i64;
-    let cid = abi_slice_to_string(&l.data.0[96..])?;
-   
-    info!("{} -> GOT 'update_valid_block' Event :: {:?}, {:?}, {:?}, {:?}, {:?} :: {:?}", &chain_id, &donor, &update_block, &end_block, &p_id, &cid, &l.data.0.len());
-
-    let res: Result<_, postgres::Error> = db.run(move|client|{
-        add_valid_block(client, EventUpdateValidBlock{
-           chain_id,
-           cid,
-           donor,
-           update_block,
-           end_block,
-           manual_add: Option::Some(false)
-        })
-    }).await;
-
-    match res {
-        Ok(_)=>Ok(()),
-        Err(e)=>Err(Box::new(e))
-    }
-}
-
-pub fn add_valid_block(client: &mut postgres::Client, event: EventUpdateValidBlock)->Result<(), postgres::Error>{
+pub fn add_valid_block(client: &mut postgres::Client, event: EventUpdateValidBlock)->Result<u64, postgres::Error>{
     client.execute("
                     INSERT INTO event_update_valid_block ( donor, update_block, end_block, cid, chain_id, manual_add) 
                     values ( LOWER($1::TEXT), $2::BIGINT, $3::BIGINT, $4::TEXT, $5::BIGINT, $6::BOOLEAN)
                     ON CONFLICT (donor, update_block, end_block, cid, chain_id, manual_add) DO NOTHING
                 ",
                     &[&event.donor, &event.update_block, &event.end_block, &event.cid, &event.chain_id, &event.manual_add]
-                )?;
-    Ok(())
-
-    // tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-    // println!("from db {}, {}, {}", cid, chain_id, doner);
+                )
 }
 
 pub fn cid_exists(client: &mut postgres::Client, cid: &str)->Result<bool, postgres::Error>{
@@ -86,4 +29,105 @@ pub fn get_max_update_block(client: &mut postgres::Client, table: String, chain_
     &[&chain_id])?;
     let maxb: i64 = row.try_get(0)?;
     Ok(maxb)
+}
+
+pub fn delete_cid(client: &mut postgres::Client, chain_id: i64, node: String, cid: String, end_block: i64)->Result<u64, postgres::Error>{
+    client.execute("DELETE FROM pinned_cids
+                            WHERE chain_id=$1::BIGINT AND node=$2::TEXT AND cid=$3::TEXT AND end_block=$4::BIGINT);", 
+                    &[&chain_id, &node, &cid, &end_block])
+}
+
+pub fn add_cid(client: &mut postgres::Client, chain_id: i64, node: String, cid: String, end_block: i64)->Result<u64, postgres::Error>{
+    client.execute("INSERT INTO pinned_cids (chain_id, node, cid, end_block)
+                                          VALUES ($1::BIGINT, $2::TEXT, $3::TEXT, $4::BIGINT)", 
+                            &[&chain_id, &node, &cid, &end_block])
+}
+
+pub fn add_failed_pin(client: &mut postgres::Client, chain_id: i64, node: &str, cid: &str, end_block: i64)->Result<u64, postgres::Error>{
+    client.execute("INSERT INTO failed_pins (chain_id, node, cid, end_block)
+                                    VALUES ($1::BIGINT, $2::TEXT, $3::TEXT, $4::BIGINT)
+                                    ON CONFLICT (chain_id, node, cid, end_block) DO NOTHING", 
+                &[&chain_id, &node, &cid, &end_block])
+}
+
+pub fn delete_multichain_expired_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<u64, postgres::Error>{
+    client.execute("DELETE FROM pinned_cids AS p1
+                        USING pinned_cids AS p2
+                        WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT AND p1.chain_id!=p2.chain_id AND p1.cid=p2.cid;",
+            &[&chain_id, &end_block])
+}
+
+pub fn get_single_chain_expired_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<Vec<CIDInfo>, postgres::Error>{
+    let res = client.query("SELECT p1.cid, p1.end_block, p1.node From pinned_cids AS p1
+                                                    INNER JOIN pinned_cids p2 ON p1.chain_id!=p2.chain_id AND p1.cid!=p2.cid
+                                                    WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT
+                                                    GROUP BY p1.chain_id, p1.node, p1.cid, p1.end_block", 
+                                &[&chain_id, &end_block])?;
+            
+    let mut v = vec![];
+    for r in res{
+        v.push(CIDInfo{
+            chain_id: Option::Some(chain_id.clone()),
+            cid: r.get(0),
+            end_block: r.get(1),
+            node: r.get(2),
+            node_login: Option::None,
+            node_pass: Option::None
+        });
+    }
+    Ok(v)
+}
+
+pub fn update_existing_cids_end_block(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<u64, postgres::Error>{
+    client.execute("UPDATE pinned_cids as pc
+                        SET end_block=euvb.end_block
+                        FROM  event_update_valid_block as euvb
+                        WHERE euvb.chain_id=pc.chain_id AND pc.cid=euvb.cid AND pc.end_block<euvb.end_block 
+                                AND euvb.end_block>$1::BIGINT AND euvb.chain_id=$2::BIGINT;", 
+            &[&end_block, &chain_id])
+}
+
+pub fn get_new_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<Vec<CIDInfo>, postgres::Error>{
+    let r = client.query("SELECT euvb.cid, MAX(euvb.end_block)
+                                                FROM event_update_valid_block as euvb
+                                                LEFT JOIN pinned_cids pc ON euvb.chain_id=pc.chain_id AND euvb.cid=pc.cid
+                                                WHERE euvb.end_block>$1::BIGINT AND euvb.chain_id=$2::BIGINT AND pc.cid IS NULL
+                                                GROUP BY euvb.cid;", 
+                                                        &[&end_block, &chain_id])?;
+    let mut rows = vec![];
+    for row in r{
+        rows.push(CIDInfo{
+            chain_id: Option::Some(chain_id.clone()),
+            cid: row.get(0),
+            end_block: row.get(1),
+            node: Option::None,
+            node_login: Option::None,
+            node_pass: Option::None
+        })
+    }
+    Ok(rows)
+}
+
+pub fn delete_expired_failed_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<u64, postgres::Error>{
+    client.execute("DELETE FROM failed_pins WHERE end_block<=$1::BIGINT AND chain_id=$2::BIGINT", 
+            &[&end_block, &chain_id])
+}
+
+pub fn get_failed_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<Vec<CIDInfo>, postgres::Error>{
+    let r = client.query("SELECT node, cid, end_block
+                                                FROM failed_pins
+                                                WHERE end_block>$1::BIGINT AND chain_id=$2::BIGINT", 
+                                                        &[&end_block, &chain_id])?;
+    let mut rows = vec![];
+    for row in r{
+        rows.push(CIDInfo{
+            chain_id: Option::Some(chain_id.clone()),
+            node: row.get(0),
+            cid: row.get(1),
+            end_block: row.get(2),
+            node_login: Option::None,
+            node_pass: Option::None
+        })
+    }
+    Ok(rows)
 }

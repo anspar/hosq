@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use rocket_sync_db_pools::{database, postgres};
 use serde::{Serialize, Deserialize};
-use web3::transports::WebSocket;
+use web3::{transports::WebSocket, types::{H160, U256}};
 pub mod db;
 pub mod errors;
 
@@ -44,4 +44,22 @@ pub struct Web3Node{
     pub provider_id: i64,
     pub chain_id: i64, //postgres takes i64
     pub web3: Arc<web3::Web3<WebSocket>>
+}
+
+#[derive(Debug, Clone)]
+pub struct CIDInfo{
+    pub chain_id: Option<i64>,
+    pub cid: Option<String>, 
+    pub end_block: Option<i64>,
+    pub node: Option<String>, // used for failed pin service
+    pub node_login: Option<String>, // used for failed pin service
+    pub node_pass: Option<String> // used for failed pin service
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddProvider{
+    owner: H160,
+    provider_id: U256,
+    block_price: U256,
+    api_url: String
 }
