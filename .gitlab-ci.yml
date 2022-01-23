@@ -24,3 +24,15 @@ build_image:
     - build_bin
   script:
     - ls -l worker/target/release/worker
+    - cd worker
+    - docker build -t registry.anspar.io/anspar_ipfs:latest .
+    - docker ps 
+
+deploy_image:
+  stage: deploy
+  tags:
+    - docker
+  dependencies:
+    - build_image
+  script:
+    - docker push registry.anspar.io/anspar_ipfs:latest
