@@ -34,5 +34,6 @@ deploy_image:
   dependencies:
     - build_image
   script:
-    - docker login -u "DOCKER_L" -p "DOCKER_P" registry.anspar.io
+    - echo "$DOCKER_L"
+    - docker login -u "$DOCKER_L" -p "$DOCKER_P" registry.anspar.io
     - docker push registry.anspar.io/anspar_ipfs:latest
