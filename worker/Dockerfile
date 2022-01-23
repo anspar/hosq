@@ -1,5 +1,5 @@
-FROM rust:1.57.0-alpine
+FROM alpine:3.14
 
-COPY ./target/release/worker /app
+COPY ./target/release/worker /app/worker
 
-CMD cd /app && worker ./config.yml
+CMD cd /app && ./worker ./config.yml
