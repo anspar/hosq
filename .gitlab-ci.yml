@@ -26,7 +26,6 @@ build_image:
     - ls -l worker/target/release/worker
     - cd worker
     - docker build -t registry.anspar.io/anspar_ipfs:latest .
-    - docker ps 
 
 deploy_image:
   stage: deploy
@@ -35,4 +34,5 @@ deploy_image:
   dependencies:
     - build_image
   script:
+    - docker login -u "DOCKER_L" -p "DOCKER_P" registry.anspar.io
     - docker push registry.anspar.io/anspar_ipfs:latest
