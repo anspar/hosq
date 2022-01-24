@@ -1,5 +1,5 @@
 FROM debian:buster
-RUN apt-get update && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt install -y libssl-dev && rm -rf /var/lib/apt/lists/*
 
 COPY ./target/release/worker /app/worker
 
