@@ -6,7 +6,7 @@ stages:
 
 build_bin:
   stage: compile
-  image: rust:1.58.1-alpine3.14
+  image: rust:1.58.1-buster
   tags:
     - ubuntu
   artifacts:
