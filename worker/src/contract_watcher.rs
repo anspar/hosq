@@ -8,7 +8,6 @@ use crate::types::{self, DbConn, Web3Node};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::futures::StreamExt;
 use rocket::{tokio, Orbit, Rocket, Shutdown};
-use serde::de::EnumAccess;
 use web3::signing::keccak256;
 use web3::types::{BlockNumber, FilterBuilder, H160, H256, U64, Log, U256};
 
