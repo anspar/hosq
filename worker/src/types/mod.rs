@@ -43,6 +43,7 @@ pub struct Web3Node{
     pub update_interval_sec: u64,
     pub provider_id: i64,
     pub chain_id: i64, //postgres takes i64
+    pub batch_size: i64,
     pub web3: Arc<web3::Web3<WebSocket>>
 }
 

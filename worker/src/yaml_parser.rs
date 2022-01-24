@@ -10,6 +10,7 @@ pub struct Provider{
     pub block_time_sec: u64,
     pub update_interval_sec: u64,
     pub provider_id: i64,
+    pub batch_size: i64,
     pub keep_alive: Option<bool>
 }
 

@@ -1,8 +1,11 @@
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - worker/target
+
 stages:
   - compile
-  - build
   - deploy
-
 
 build_bin:
   stage: compile
@@ -16,24 +19,14 @@ build_bin:
     - cd worker
     - cargo build --release
 
-build_image:
-  stage: build
-  tags:
-    - docker
-  dependencies:
-    - build_bin
-  script:
-    - ls -l worker/target/release/worker
-    - cd worker
-    - docker build -t registry.anspar.io/anspar_ipfs:latest .
-
 deploy_image:
   stage: deploy
   tags:
     - docker
   dependencies:
-    - build_image
+    - build_bin
   script:
-    - echo "$DOCKER_L"
+    - cd worker
+    - docker build -t registry.anspar.io/anspar_ipfs:latest .
     - docker login -u "$DOCKER_L" -p "$DOCKER_P" registry.anspar.io
     - docker push registry.anspar.io/anspar_ipfs:latest

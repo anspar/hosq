@@ -63,6 +63,57 @@ pub async fn update_valid_block(psql: Arc<DbConn>, l: Log, chain_id: i64, provid
     }
 }
 
+async fn update_valid_block_old_logs(provider: Web3Node, psql: Arc<DbConn>, r_off: Shutdown, chain_id: i64, start_block: i64, filter: FilterBuilder){
+    tokio::spawn(async move{
+        let bn = match provider.web3.eth().block_number().await {
+            Ok(v) => v.as_u64() as i64,
+            Err(e) => {
+                error!(
+                    "Error getting block number for {}: {:?}",
+                    &provider.chain_name, e
+                );
+                r_off.notify();
+                return;
+            }
+        };
+        let mut start_block = start_block;
+        let mut end_loop = false;
+        loop{
+            info!("CHAIN '{}'- '{}' > GETTING old logs from block '{}'", &provider.chain_name, &chain_id, &start_block);
+            let f = if bn-start_block>provider.batch_size{
+                let tf = filter.clone().from_block(BlockNumber::Number(
+                    U64::from_dec_str(start_block.to_string().as_str()).unwrap(),
+                )).to_block(
+                    BlockNumber::Number(
+                        U64::from_dec_str((start_block+provider.batch_size).to_string().as_str()).unwrap(),
+                    )
+                )
+                .build();
+                start_block = start_block+provider.batch_size;
+                tf
+            } else {
+                end_loop = true;
+                filter.clone().from_block(BlockNumber::Number(
+                    U64::from_dec_str(start_block.to_string().as_str()).unwrap(),
+                )).to_block(
+                    BlockNumber::Number(
+                        U64::from_dec_str(bn.to_string().as_str()).unwrap(),
+                    )
+                )
+                .build()
+            };
+            let logs = provider.web3.eth().logs(f).await.unwrap();
+            for l in logs {
+                // println!("{:?} - {:?}", l, l.data.0.len());
+                update_valid_block(psql.clone(), l, chain_id, provider.provider_id)
+                    .await
+                    .unwrap();
+            }
+            if end_loop{break}
+        }
+    });
+}
+
 async fn watch_update_valid_block(provider: Web3Node, psql: Arc<DbConn>, r_off: Shutdown) {
     let web3 = provider.web3.clone();
     let chain_id = match web3.eth().chain_id().await {
@@ -81,7 +132,7 @@ async fn watch_update_valid_block(provider: Web3Node, psql: Arc<DbConn>, r_off: 
         Ok(v) => v,
         Err(e) => {
             error!(
-                "CHAIN {} - {} > '{}', will start watching 'event_update_valid_block' from block {}",
+                "CHAIN '{}' - '{}' > '{}', will start watching 'event_update_valid_block' from block {}",
                 provider.chain_name, provider.chain_id, e, provider.start_block
             );
             provider.start_block
@@ -93,27 +144,20 @@ async fn watch_update_valid_block(provider: Web3Node, psql: Arc<DbConn>, r_off: 
     let event = H256::from_slice(&keccak256(&(b"UpdateValidBlock(address,uint256,uint256,string)"[..])));
     let filter = FilterBuilder::default()
         .address(vec![contarct_address])
-        .from_block(BlockNumber::Number(
-            U64::from_dec_str(block.to_string().as_str()).unwrap(),
-        ))
-        .topics(Some(vec![event]), None, None, None)
-        .build();
+        // .from_block(BlockNumber::Number(
+        //     U64::from_dec_str(block.to_string().as_str()).unwrap(),
+        // ))
+        .topics(Some(vec![event]), None, None, None);
 
     info!(
         "CHAIN '{}' - '{}' > Starting 'watch_update_valid_block' event listener from block - '{}'",
         &provider.chain_name, &chain_id, &block
     );
 
-    let logs = web3.eth().logs(filter.clone()).await.unwrap();
-    for l in logs {
-        // println!("{:?} - {:?}", l, l.data.0.len());
-        update_valid_block(psql.clone(), l, chain_id, provider.provider_id)
-            .await
-            .unwrap();
-    }
-    // let web3 = Web3::new(&*web3);
+    let (p, f, db1) = (provider.clone(), filter.clone(), psql.clone());
+    update_valid_block_old_logs(p, db1, r_off, chain_id, block, f).await;
 
-    let e = web3.eth_subscribe().subscribe_logs(filter).await.unwrap();
+    let e = web3.eth_subscribe().subscribe_logs(filter.build()).await.unwrap();
 
     e.for_each(|event| async {
         let _ = match event {
@@ -147,7 +191,7 @@ async fn watch_add_provider(provider: Web3Node, psql: Arc<DbConn>, r_off: Shutdo
         Ok(v) => v,
         Err(e) => {
             error!(
-                "CHAIN {} - {} > '{}', will start watching 'event_add_provider' from block {}",
+                "CHAIN '{}' - {} > '{}', will start watching 'event_add_provider' from block {}",
                 provider.chain_name, provider.chain_id, e, provider.start_block
             );
             provider.start_block

@@ -54,6 +54,7 @@ async fn main() {
             update_interval_sec: provider.update_interval_sec,
             provider_id: provider.provider_id,
             chain_id,
+            batch_size: provider.batch_size,
             web3: socket,
         });
     }
