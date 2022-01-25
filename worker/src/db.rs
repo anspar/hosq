@@ -1,4 +1,4 @@
-use crate::types::{db::EventUpdateValidBlock, CIDInfo};
+use crate::types::{db::{EventUpdateValidBlock, EventAddProvider}, CIDInfo};
 
 pub fn add_valid_block(client: &mut postgres::Client, event: EventUpdateValidBlock)->Result<u64, postgres::Error>{
     client.execute("
@@ -7,6 +7,49 @@ pub fn add_valid_block(client: &mut postgres::Client, event: EventUpdateValidBlo
                     ON CONFLICT (donor, update_block, end_block, cid, chain_id, manual_add) DO NOTHING
                 ",
                     &[&event.donor, &event.update_block, &event.end_block, &event.cid, &event.chain_id, &event.manual_add]
+                )
+}
+
+pub fn add_provider(client: &mut postgres::Client, event: EventAddProvider)->Result<u64, postgres::Error>{
+    client.execute("
+                    INSERT INTO event_add_provider (owner, update_block, provider_id, api_url, chain_id, block_price) 
+                    values ( LOWER($1::TEXT), $2::BIGINT, $3::BIGINT, $4::TEXT, $5::BIGINT, $6::BIGINT)
+                    ON CONFLICT (owner, update_block, provider_id, api_url, chain_id, block_price) DO NOTHING
+                ",
+                    &[&event.owner, &event.update_block, &event.provider_id, &event.api_url, &event.chain_id, &event.block_price]
+                )
+}
+
+pub fn update_provider_block_price(client: &mut postgres::Client, update_block: i64, provider_id: i64, block_price: i64)->Result<u64, postgres::Error>{
+    client.execute("
+                    UPDATE event_add_provider 
+                    SET update_bock=$1::BIGINT, block_price=$2::BIGINT
+                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT
+                    ON CONFLICT (owner, update_block, provider_id, api_url, chain_id, block_price) DO NOTHING
+                ",
+                    &[&update_block, &block_price, &provider_id]
+                )
+}
+
+pub fn update_provider_api_url(client: &mut postgres::Client, update_block: i64, provider_id: i64, api_url: String)->Result<u64, postgres::Error>{
+    client.execute("
+                    UPDATE event_add_provider 
+                    SET update_bock=$1::BIGINT, api_url=$2::TEXT
+                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT
+                    ON CONFLICT (owner, update_block, provider_id, api_url, chain_id, block_price) DO NOTHING
+                ",
+                    &[&update_block, &api_url, &provider_id]
+                )
+}
+
+pub fn update_provider_owner(client: &mut postgres::Client, update_block: i64, provider_id: i64, owner: String)->Result<u64, postgres::Error>{
+    client.execute("
+                    UPDATE event_add_provider 
+                    SET update_bock=$1::BIGINT, owner=$2::TEXT
+                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT
+                    ON CONFLICT (owner, update_block, provider_id, api_url, chain_id, block_price) DO NOTHING
+                ",
+                    &[&update_block, &owner, &provider_id]
                 )
 }
 

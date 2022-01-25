@@ -253,13 +253,13 @@ async fn add_failed_pin_to_db(
         match db::add_failed_pin(client, chain_id, &node, &cid, block) {
             Ok(_) => {
                 warn!(
-                    "CHAIN - '{}' > FAILED to pin '{}' to NODE '{}' expiration block '{}'",
+                    "CHAIN '{}' > FAILED to pin '{}' to NODE '{}' expiration block '{}'",
                     &chain_id, &cid, &node, &block
                 )
             }
             Err(e) => {
                 error!(
-                    "CHAIN - '{}' > ERROR inserting cid {} to failed_pins: {}",
+                    "CHAIN '{}' > ERROR inserting cid {} to failed_pins: {}",
                     &chain_id, &cid, e
                 )
             }
@@ -283,7 +283,7 @@ async fn pin_cid_to_node(psql: Arc<DbConn>, c: CIDInfo, store_failed: bool) {
             Ok(v) => {
                 if !v.status().is_success() {
                     error!(
-                        "CHAIN - '{}' > ERROR pinning cid '{}' to node '{}'",
+                        "CHAIN '{}' > ERROR pinning cid '{}' to node '{}'",
                         &chain_id, &cid, &node
                     );
                     if store_failed {
@@ -299,13 +299,13 @@ async fn pin_cid_to_node(psql: Arc<DbConn>, c: CIDInfo, store_failed: bool) {
                 {
                     Ok(_) => {
                         info!(
-                            "CHAIN - '{}' > PINNED '{}' to 'NODE' {} till block '{}'",
+                            "CHAIN '{}' > PINNED '{}' to 'NODE' {} till block '{}'",
                             &chain_id, &cid, &node, &block
                         )
                     }
                     Err(e) => {
                         error!(
-                            "CHAIN - '{}' > ERROR inserting cid '{}' to pinned_cids: '{}'",
+                            "CHAIN '{}' > ERROR inserting cid '{}' to pinned_cids: '{}'",
                             &chain_id, &cid, e
                         )
                     }
@@ -314,7 +314,7 @@ async fn pin_cid_to_node(psql: Arc<DbConn>, c: CIDInfo, store_failed: bool) {
 
             Err(e) => {
                 error!(
-                    "CHAIN - '{}' > ERROR pinning cid '{}' to node '{}' : '{}'",
+                    "CHAIN '{}' > ERROR pinning cid '{}' to node '{}' : '{}'",
                     &chain_id, &cid, &node, e
                 );
                 if store_failed {
@@ -349,13 +349,13 @@ async fn unpin_cid_from_node(psql: Arc<DbConn>, c: CIDInfo) {
                 {
                     Ok(_) => {
                         info!(
-                            "CHAIN - '{}' > UNPINNED '{}' from NODE '{}'",
+                            "CHAIN '{}' > UNPINNED '{}' from NODE '{}'",
                             &chain_id, &cid, &node
                         )
                     }
                     Err(e) => {
                         error!(
-                            "CHAIN - '{}' > ERROR deleting cid '{}' from pinned_cids: '{}'",
+                            "CHAIN '{}' > ERROR deleting cid '{}' from pinned_cids: '{}'",
                             &chain_id, &cid, e
                         )
                     }
