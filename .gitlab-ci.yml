@@ -1,7 +1,4 @@
-cache:
-  key: ${CI_COMMIT_REF_SLUG}
-  paths:
-    - worker/target
+
 
 stages:
   - compile
@@ -15,6 +12,10 @@ build_bin:
   artifacts:
     paths:
       - worker/target/release/worker
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - worker/target
   script:
     - cd worker
     - cargo build --release
