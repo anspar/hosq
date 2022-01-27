@@ -19,3 +19,13 @@ pub struct EventAddProvider{
     pub block_price: i64,
     pub api_url: String, 
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PinnedCIDs{
+    pub update_block: i64,
+    pub donor: String,
+    pub end_block: i64,
+    pub cid: String, 
+    pub node_count: i64,
+    pub failed_node_count: i64,
+}

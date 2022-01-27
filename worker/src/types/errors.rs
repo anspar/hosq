@@ -2,7 +2,7 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum CustomError {
-    Inequality,
+    Inequality(String),
     InvalidAbiString
 }
 
@@ -11,7 +11,7 @@ impl std::error::Error for CustomError {}
 impl fmt::Display for CustomError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CustomError::Inequality => write!(f, "Mismatching values"),
+            CustomError::Inequality(m) => write!(f, "Mismatching values: {}", m),
             CustomError::InvalidAbiString => write!(f, "Invalid abi encoded string"),
         }
     }

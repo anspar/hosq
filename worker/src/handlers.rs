@@ -1,6 +1,7 @@
 use super::db;
-use crate::types;
+use crate::types::{self, DbConn, db::{PinnedCIDs}, Web3Node};
 use crate::yaml_parser::IPFSNode;
+use postgres::Client;
 use rand::Rng;
 use rocket::http::Status;
 use rocket::response::stream::{Event, EventStream};
@@ -9,27 +10,40 @@ use rocket::{
     response::{content::Json, status::Custom},
     State,
 };
+use serde_json::json;
 use std::sync::Arc;
+
+async fn get_block_number(chain_id: i64, providers: Arc<Vec<Web3Node>>) -> Option<(u64, u64)>{
+    for provider in &**providers {
+        if provider.chain_id == chain_id {
+            // return Option::Some(provider.to_owned());
+            match provider.web3.eth().block_number().await{
+                Ok(v)=>{return Option::Some((v.as_u64(), provider.block_time_sec))}
+                Err(e)=>{
+                    error!(
+                        "Error getting block number for {}: {:?}",
+                        &provider.chain_name, e
+                    );
+                    return Option::None
+                }
+            }
+        }
+    }
+
+    Option::None
+}
 
 #[post("/file/upload?<name>&<chain_id>&<address>", data = "<file>")]
 pub async fn upload_file(
     name: String,
     file: Data<'_>,
     nodes: &State<Arc<Vec<IPFSNode>>>,
-    providers: &State<Arc<Vec<types::Web3Node>>>,
+    providers: &State<Arc<Vec<Web3Node>>>,
     chain_id: i64,
     address: String,
-    psql: types::DbConn,
+    psql: DbConn,
 ) -> Result<EventStream![], Custom<Json<String>>> {
-    let mut web3_node = Option::None;
-    for provider in &***providers.clone() {
-        if provider.chain_id == chain_id {
-            web3_node = Option::Some(provider);
-            break;
-        }
-    }
-
-    let web3_node = match web3_node {
+    let (update_block, b_time) = match get_block_number(chain_id, (**providers).clone()).await{
         Some(v) => v,
         None => {
             return Err(Custom(
@@ -39,25 +53,7 @@ pub async fn upload_file(
         }
     };
 
-    let (update_block, end_block) = match web3_node.web3.clone().eth().block_number().await {
-        Ok(v) => {
-            let blocks_from_time_sec = 604800 / web3_node.block_time_sec; // 7 days
-            (
-                v.as_u64() as i64,
-                (v.as_u64() + blocks_from_time_sec) as i64,
-            )
-        }
-        Err(e) => {
-            error!(
-                "Error getting block number for {}: {:?}",
-                &web3_node.chain_name, e
-            );
-            return Err(Custom(
-                Status::InternalServerError,
-                Json("Internal Error".to_owned()),
-            ));
-        }
-    };
+    let end_block = update_block + (604800 / b_time); // 7 Days
 
     let rng = rand::thread_rng().gen_range(0..nodes.len());
     //todo: use async buffer don't store the file on memory.
@@ -104,8 +100,8 @@ pub async fn upload_file(
                     chain_id,
                     cid,
                     donor: address,
-                    update_block,
-                    end_block,
+                    update_block: update_block as i64,
+                    end_block: end_block as i64,
                     manual_add: Option::Some(true),
                 })?;
                 Ok(true)
@@ -127,4 +123,53 @@ pub async fn upload_file(
         Status::InternalServerError,
         Json("Internal Error :(".to_owned()),
     ))
+}
+
+#[get("/pinned_cids?<address>&<chain_id>")]
+pub async fn get_cids(address: String, chain_id: i64, psql: DbConn, providers: &State<Arc<Vec<types::Web3Node>>>,) -> Custom<Option<Json<String>>>{
+    let bn = match get_block_number(chain_id, (**providers).clone()).await{
+        Some(v) => v.0,
+        None => {
+            return Custom(
+                Status::BadRequest,
+                Option::None,
+            )
+        }
+    };
+    match psql.run( move |client: &mut Client|{
+        let res = client.query("
+        SELECT euvb.cid, euvb.donor, min(euvb.update_block), max(euvb.end_block), 
+                (SELECT count(pc.node) 
+                FROM pinned_cids as pc 
+                WHERE pc.chain_id=$1::BIGINT AND pc.cid=euvb.cid AND pc.end_block>=$3::BIGINT),
+                (SELECT count(fc.node) 
+                FROM failed_pins as fc 
+                WHERE fc.chain_id=$1::BIGINT AND fc.cid=euvb.cid AND fc.end_block>=$3::BIGINT)
+        FROM event_update_valid_block as euvb
+        WHERE euvb.chain_id=$1::BIGINT AND euvb.donor=LOWER($2::TEXT) 
+        GROUP BY euvb.cid, euvb.donor;
+        ", &[&chain_id, &address, &(bn as i64)])?;
+
+        Ok(res.into_iter().map(|r| PinnedCIDs{
+            cid: r.get(0),
+            donor: r.get(1),
+            update_block: r.get(2),
+            end_block: r.get(3),
+            node_count: r.get(4),
+            failed_node_count: r.get(5),
+        }).collect())
+    })
+    .await{
+        Ok::<Vec<PinnedCIDs>, postgres::Error>(v)=>Custom(
+                    Status::Ok,
+                    Option::Some(Json(json!(v).to_string()))
+                ),
+        Err(e)=>{
+            error!("Error collecting pinned CIDs > {}", e);
+            return Custom(
+                Status::InternalServerError,
+                Option::None
+            )
+        }
+    }
 }

@@ -27,11 +27,10 @@ async fn main() {
 
     let conf = yaml_parser::get_conf(&args[1]);
     //   let pre_release = conf.pre_release;
-    let providers = conf.providers.unwrap();
     let nodes = Arc::new(conf.ipfs_nodes.unwrap());
     let mut providers_manage = vec![];
 
-    for provider in providers {
+    for provider in conf.providers.unwrap() {
         let transport = web3::transports::WebSocket::new(&(provider.provider))
             .await
             .unwrap();
@@ -66,7 +65,7 @@ async fn main() {
     };
 
     let _ = rocket::build()
-        .mount("/", routes![handlers::upload_file])
+        .mount("/", routes![handlers::upload_file, handlers::get_cids])
         .attach(types::DbConn::fairing())
         .attach(cors::CORS)
         .attach(ipfs_watcher)

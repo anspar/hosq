@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::ops::Div;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -32,6 +33,7 @@ macro_rules! update_old_logs {
             let mut end_loop = false;
             loop{
                 info!("CHAIN '{}' - '{}' > GETTING old logs for '{}' from block '{}'", &w3.chain_name, $chain_id, $name, $start_block);
+                if start_block > bn {break;}
                 let filter = if bn-start_block>w3.batch_size{
                     let tf = f.clone().from_block(BlockNumber::Number(
                         U64::from_dec_str(start_block.to_string().as_str()).unwrap(),
@@ -81,7 +83,7 @@ macro_rules! watch_event {
                     db::get_max_update_block(client, $db_name.to_owned(), chain_id)
                 })
                 .await {
-                Ok(v) => v,
+                Ok(v) => std::cmp::max(v, provider.start_block),
                 Err(e) => {
                     error!(
                         "CHAIN '{}' - '{}' > '{}', will start watching '{}' from block {}",
@@ -125,29 +127,34 @@ macro_rules! watch_event {
 }
 
 fn abi_slice_to_string(b: &[u8])->Result<String, CustomError>{
-    // println!("{:?}", b);
-    // let offset = U256::from_big_endian(&b[..32]).as_u64();
-    if b.len()<=64 {return Err(CustomError::InvalidAbiString)}
-    let mut length = U256::from_big_endian(&b[32..64]).as_u64();
+    // println!("{:?}", b.len());
+    if b.len()<32 {return Err(CustomError::InvalidAbiString)}
+    let (bytes, mut len) = if b.len()==32{
+        (&b[..32], b.len())
+    }else{
+        // let offset = U256::from_big_endian(&b[..32]).as_u64();
+        let length = U256::from_big_endian(&b[32..64]).as_usize();
+        (&b[64..], length)
+    };
     let mut s = "".to_owned();
-    for c in &b[64..]{
-        if length==0 {break}
+    for c in bytes{
+        if len==0 {break}
         if *c==0 {continue} 
         s = format!("{}{}", s, &(*c as char));
-        length-=1;
+        len-=1;
     }
+    // println!("{}", &s);
     Ok(s)
 }
 
 pub async fn update_valid_block(psql: Arc<DbConn>, l: Log, chain_id: i64, cur_provider_id: i64) -> Result<(),  Box<dyn Error>> {
     if l.data.0.len()<96{
-        error!("update_valid_block: data len {:?} !>= 96", l.data.0.len());
-        return Err(Box::new(CustomError::Inequality))
+        return Err(Box::new(CustomError::Inequality(format!("update_valid_block: data len {:?} !>= 96", l.data.0.len()))))
     }
 
     // let block: i64 = l.block_number.unwrap().low_u64().try_into().unwrap();
     let p_id = U256::from_big_endian(&l.data.0[64..96]).as_u64() as i64;
-    if p_id!=cur_provider_id{return Err(Box::new(CustomError::Inequality))}
+    if p_id!=cur_provider_id{info!("CHAIN '{}' -> GOT 'update_valid_block' Event for '{}' I'am '{}', Not updating", chain_id, p_id, cur_provider_id); return Ok(())}
 
     let donor = format!("{:?}", H160::from_slice(&l.data.0[12..32]));
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
@@ -175,8 +182,7 @@ pub async fn update_valid_block(psql: Arc<DbConn>, l: Log, chain_id: i64, cur_pr
 
 pub async fn update_add_provider(psql: Arc<DbConn>, l: Log, chain_id: i64, _cur_provider_id: i64) -> Result<(),  Box<dyn Error>> {
     if l.data.0.len()<96{
-        error!("update_add_provider: data len {:?} !>= 96", l.data.0.len());
-        return Err(Box::new(CustomError::Inequality))
+        return Err(Box::new(CustomError::Inequality(format!("update_add_provider: data len {:?} !>= 96", l.data.0.len()))))
     }
 
     // let block: i64 = l.block_number.unwrap().low_u64().try_into().unwrap();
@@ -185,7 +191,8 @@ pub async fn update_add_provider(psql: Arc<DbConn>, l: Log, chain_id: i64, _cur_
     let owner = format!("{:?}", H160::from_slice(&l.data.0[12..32]));
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
     let provider_id = U256::from_big_endian(&l.data.0[32..64]).as_u64() as i64;
-    let block_price = U256::from_big_endian(&l.data.0[64..96]).as_u64() as i64;
+    let block_price = U256::from_big_endian(&l.data.0[64..96])
+                            .div(U256::from_dec_str("1000000000").unwrap()).as_u64() as i64;
     let api_url = abi_slice_to_string(&l.data.0[96..])?;
    
     info!("CHAIN '{}' -> GOT 'update_add_provider' Event :: {:?}, {:?}, {:?}, {:?}, {:?} :: {:?}", &chain_id, &owner, &update_block, &block_price, &provider_id, &api_url, &l.data.0.len());
@@ -209,13 +216,13 @@ pub async fn update_add_provider(psql: Arc<DbConn>, l: Log, chain_id: i64, _cur_
 
 pub async fn update_provider_block_price(psql: Arc<DbConn>, l: Log, chain_id: i64, _cur_provider_id: i64) -> Result<(),  Box<dyn Error>> {
     if l.data.0.len()<64{
-        error!("update_provider_block_price: data len {:?} !>= 64", l.data.0.len());
-        return Err(Box::new(CustomError::Inequality))
+        return Err(Box::new(CustomError::Inequality(format!("update_provider_block_price: data len {:?} !>= 64", l.data.0.len()))))
     }
 
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
     let provider_id = U256::from_big_endian(&l.data.0[..32]).as_u64() as i64;
-    let block_price = U256::from_big_endian(&l.data.0[32..64]).as_u64() as i64;
+    let block_price = U256::from_big_endian(&l.data.0[32..64])
+                            .div(U256::from_dec_str("1000000000").unwrap()).as_u64() as i64; //gwei
    
     info!("CHAIN '{}' -> GOT 'update_provider_block_price' Event :: {:?}, {:?}, {:?} :: {:?}", &chain_id, &update_block, &block_price, &provider_id, &l.data.0.len());
 
@@ -231,8 +238,7 @@ pub async fn update_provider_block_price(psql: Arc<DbConn>, l: Log, chain_id: i6
 
 pub async fn update_provider_api_url(psql: Arc<DbConn>, l: Log, chain_id: i64, _cur_provider_id: i64) -> Result<(),  Box<dyn Error>> {
     if l.data.0.len()<64{
-        error!("update_provider_api_url: data len {:?} !>= 64", l.data.0.len());
-        return Err(Box::new(CustomError::Inequality))
+        return Err(Box::new(CustomError::Inequality(format!("update_provider_api_url: data len {:?} !>= 64", l.data.0.len()))))
     }
 
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
@@ -253,8 +259,7 @@ pub async fn update_provider_api_url(psql: Arc<DbConn>, l: Log, chain_id: i64, _
 
 pub async fn update_provider_owner(psql: Arc<DbConn>, l: Log, chain_id: i64, _cur_provider_id: i64) -> Result<(),  Box<dyn Error>> {
     if l.data.0.len()<64{
-        error!("update_provider_owner: data len {:?} !>= 64", l.data.0.len());
-        return Err(Box::new(CustomError::Inequality))
+        return Err(Box::new(CustomError::Inequality(format!("update_provider_owner: data len {:?} !>= 64", l.data.0.len()))))
     }
 
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;

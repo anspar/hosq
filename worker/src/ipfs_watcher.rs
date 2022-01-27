@@ -39,7 +39,7 @@ pub async fn pin_chain_cids(
             }
         };
         let cn = provider.chain_name.clone();
-        let cids_to_pin: Result<Vec<CIDInfo>, postgres::Error> = psql
+        match psql
             .run(move |client| {
                 //update pinned cids valid block number
                 let r = db::update_existing_cids_end_block(client, chain_id, bn)?;
@@ -50,11 +50,9 @@ pub async fn pin_chain_cids(
                 );
 
                 //collect new cids to pin
-                Ok(db::get_new_cids(client, chain_id, bn)?)
+                db::get_new_cids(client, chain_id, bn)
             })
-            .await;
-
-        match cids_to_pin {
+            .await {
             Ok(v) => {
                 info!(
                     "CHAIN '{}' - '{}' > CIDs to pin, total: '{}'",
@@ -136,7 +134,7 @@ pub async fn retry_failed_cids(
             }
         };
         let cn = provider.chain_name.clone();
-        let res: Result<Vec<CIDInfo>, postgres::Error> = psql
+        match psql
             .run(move |client| {
                 let r = db::delete_expired_failed_cids(client, chain_id, bn)?;
                 info!(
@@ -144,11 +142,9 @@ pub async fn retry_failed_cids(
                     &cn, &chain_id, r
                 );
 
-                Ok(db::get_failed_cids(client, chain_id, bn)?)
+                db::get_failed_cids(client, chain_id, bn)
             })
-            .await;
-
-        match res {
+            .await {
             Ok(v) => {
                 info!(
                     "CHAIN '{}' - '{}' > Got failed CIDs to pin, total: {}",
@@ -204,7 +200,7 @@ pub async fn unpin_cids(
             }
         };
         let chain_name = provider.chain_name.clone();
-        let cids_to_unpin: Result<Vec<CIDInfo>, postgres::Error> = psql
+        match psql
             .run(move |client| {
                 let res = db::delete_multichain_expired_cids(client, chain_id, bn)?;
                 info!(
@@ -212,11 +208,10 @@ pub async fn unpin_cids(
                     chain_name, &chain_id, res
                 );
 
-                Ok(db::get_single_chain_expired_cids(client, chain_id, bn)?)
+                db::get_single_chain_expired_cids(client, chain_id, bn)
             })
-            .await;
-
-        match cids_to_unpin {
+            .await
+        {
             Ok(v) => {
                 info!(
                     "CHAIN '{}' - '{}' > CIDs to unpin, total: {}",
