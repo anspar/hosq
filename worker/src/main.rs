@@ -14,6 +14,7 @@ mod yaml_parser;
 mod db;
 mod types;
 mod handlers;
+mod keep_alive;
 
 
 #[rocket::main]
@@ -55,7 +56,8 @@ async fn main() {
             chain_id,
             batch_size: provider.batch_size,
             web3: socket,
-            skip_old: provider.skip_old
+            skip_old: provider.skip_old,
+            keep_alive: provider.keep_alive
         });
     }
 
@@ -71,6 +73,7 @@ async fn main() {
         .attach(cors::CORS)
         .attach(ipfs_watcher)
         .attach(contract_watcher::ContractService)
+        .attach(keep_alive::KeepProvidersAlive)
         .manage(nodes)
         .manage(providers_manage)
         .launch()
