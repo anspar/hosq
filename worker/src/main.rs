@@ -55,6 +55,7 @@ async fn main() {
             chain_id,
             batch_size: provider.batch_size,
             web3: socket,
+            skip_old: provider.skip_old
         });
     }
 

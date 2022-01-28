@@ -29,7 +29,14 @@ macro_rules! update_old_logs {
                     return;
                 }
             };
-            let mut start_block = $start_block;
+            let mut start_block = match w3.skip_old{
+                Some(v)=>{
+                    if v {bn-w3.batch_size}
+                    else {$start_block}
+                }
+                None=> $start_block
+            };
+            if start_block<0{warn!("CHAIN '{}' - '{}' > ERROR '{}': start block is negative, maybe batch size is too high", &w3.chain_name, $chain_id, $name); return}
             let mut end_loop = false;
             loop{
                 info!("CHAIN '{}' - '{}' > GETTING old logs for '{}' from block '{}'", &w3.chain_name, $chain_id, $name, $start_block);
@@ -227,7 +234,7 @@ pub async fn update_provider_block_price(psql: Arc<DbConn>, l: Log, chain_id: i6
     info!("CHAIN '{}' -> GOT 'update_provider_block_price' Event :: {:?}, {:?}, {:?} :: {:?}", &chain_id, &update_block, &block_price, &provider_id, &l.data.0.len());
 
     let res: Result<_, postgres::Error> = psql.run(move|client|{
-        db::update_provider_block_price(client, update_block, provider_id, block_price)
+        db::update_provider_block_price(client, chain_id, update_block, provider_id, block_price)
     }).await;
 
     match res {
@@ -248,7 +255,7 @@ pub async fn update_provider_api_url(psql: Arc<DbConn>, l: Log, chain_id: i64, _
     info!("CHAIN '{}' -> GOT 'update_provider_api_url' Event :: {:?}, {:?}, {:?} :: {:?}", &chain_id, &update_block, &api_url, &provider_id, &l.data.0.len());
 
     let res: Result<_, postgres::Error> = psql.run(move|client|{
-        db::update_provider_api_url(client, update_block, provider_id, api_url)
+        db::update_provider_api_url(client, chain_id, update_block, provider_id, api_url)
     }).await;
 
     match res {
@@ -269,7 +276,7 @@ pub async fn update_provider_owner(psql: Arc<DbConn>, l: Log, chain_id: i64, _cu
     info!("CHAIN '{}' -> GOT 'update_provider_owner' Event :: {:?}, {:?}, {:?} :: {:?}", &chain_id, &update_block, &owner, &provider_id, &l.data.0.len());
 
     let res: Result<_, postgres::Error> = psql.run(move|client|{
-        db::update_provider_owner(client, update_block, provider_id, owner)
+        db::update_provider_owner(client, chain_id, update_block, provider_id, owner)
     }).await;
 
     match res {

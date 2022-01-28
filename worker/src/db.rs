@@ -20,33 +20,33 @@ pub fn add_provider(client: &mut postgres::Client, event: EventAddProvider)->Res
                 )
 }
 
-pub fn update_provider_block_price(client: &mut postgres::Client, update_block: i64, provider_id: i64, block_price: i64)->Result<u64, postgres::Error>{
+pub fn update_provider_block_price(client: &mut postgres::Client, chain_id: i64, update_block: i64, provider_id: i64, block_price: i64)->Result<u64, postgres::Error>{
     client.execute("
                     UPDATE event_add_provider 
                     SET update_block=$1::BIGINT, block_price=$2::BIGINT
-                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT
+                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
                 ",
-                    &[&update_block, &block_price, &provider_id]
+                    &[&update_block, &block_price, &provider_id, &chain_id]
                 )
 }
 
-pub fn update_provider_api_url(client: &mut postgres::Client, update_block: i64, provider_id: i64, api_url: String)->Result<u64, postgres::Error>{
+pub fn update_provider_api_url(client: &mut postgres::Client, chain_id: i64, update_block: i64, provider_id: i64, api_url: String)->Result<u64, postgres::Error>{
     client.execute("
                     UPDATE event_add_provider 
                     SET update_block=$1::BIGINT, api_url=$2::TEXT
-                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT
+                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
                 ",
-                    &[&update_block, &api_url, &provider_id]
+                    &[&update_block, &api_url, &provider_id, &chain_id]
                 )
 }
 
-pub fn update_provider_owner(client: &mut postgres::Client, update_block: i64, provider_id: i64, owner: String)->Result<u64, postgres::Error>{
+pub fn update_provider_owner(client: &mut postgres::Client, chain_id: i64, update_block: i64, provider_id: i64, owner: String)->Result<u64, postgres::Error>{
     client.execute("
                     UPDATE event_add_provider 
                     SET update_block=$1::BIGINT, owner=$2::TEXT
-                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT
+                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
                 ",
-                    &[&update_block, &owner, &provider_id]
+                    &[&update_block, &owner, &provider_id, &chain_id]
                 )
 }
 
