@@ -135,27 +135,6 @@ macro_rules! watch_event {
     };
 }
 
-fn abi_slice_to_string(b: &[u8])->Result<String, CustomError>{
-    // println!("{:?}", b.len());
-    if b.len()<32 {return Err(CustomError::InvalidAbiString)}
-    let (bytes, mut len) = if b.len()==32{
-        (b, b.len())
-    }else{
-        // let offset = U256::from_big_endian(&b[..32]).as_u64();
-        let length = U256::from_big_endian(&b[32..64]).as_usize();
-        (&b[64..(64+length)], length)
-    };
-    let mut s = "".to_owned();
-    for c in bytes{
-        if len==0 {break}
-        if *c==0 {continue} 
-        s = format!("{}{}", s, &(*c as char));
-        len-=1;
-    }
-    // println!("{}", &s);
-    Ok(s)
-}
-
 pub async fn update_valid_block(psql: Arc<DbConn>, l: Log, chain_id: i64, cur_provider_id: i64) -> Result<(),  Box<dyn Error>> {
     if l.data.0.len()<96{
         return Err(Box::new(CustomError::Inequality(format!("update_valid_block: data len {:?} !>= 96", l.data.0.len()))))
