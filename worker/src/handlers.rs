@@ -1,5 +1,5 @@
 use super::db;
-use crate::types::{self, DbConn, db::{PinnedCIDs}, Web3Node};
+use crate::types::{self, DbConn, db::{PinnedCIDs, EventAddProviderResponse}, Web3Node};
 use crate::yaml_parser::IPFSNode;
 use postgres::Client;
 use rand::Rng;
@@ -138,7 +138,7 @@ pub async fn get_cids(address: String, chain_id: i64, psql: DbConn, providers: &
     };
     match psql.run( move |client: &mut Client|{
         let res = client.query("
-        SELECT euvb.cid, euvb.donor, min(euvb.update_block), max(euvb.end_block), 
+        SELECT euvb.cid, euvb.donor, min(euvb.update_block), max(euvb.end_block) as eb, 
                 (SELECT count(pc.node) 
                 FROM pinned_cids as pc 
                 WHERE pc.chain_id=$1::BIGINT AND pc.cid=euvb.cid AND pc.end_block>=$3::BIGINT),
@@ -147,7 +147,8 @@ pub async fn get_cids(address: String, chain_id: i64, psql: DbConn, providers: &
                 WHERE fc.chain_id=$1::BIGINT AND fc.cid=euvb.cid AND fc.end_block>=$3::BIGINT)
         FROM event_update_valid_block as euvb
         WHERE euvb.chain_id=$1::BIGINT AND euvb.donor=LOWER($2::TEXT) 
-        GROUP BY euvb.cid, euvb.donor;
+        GROUP BY euvb.cid, euvb.donor
+        ORDER BY eb DESC LIMIT 100;
         ", &[&chain_id, &address, &(bn as i64)])?;
 
         Ok(res.into_iter().map(|r| PinnedCIDs{
@@ -161,6 +162,37 @@ pub async fn get_cids(address: String, chain_id: i64, psql: DbConn, providers: &
     })
     .await{
         Ok::<Vec<PinnedCIDs>, postgres::Error>(v)=>Custom(
+                    Status::Ok,
+                    Option::Some(Json(json!(v).to_string()))
+                ),
+        Err(e)=>{
+            error!("Error collecting pinned CIDs > {}", e);
+            return Custom(
+                Status::InternalServerError,
+                Option::None
+            )
+        }
+    }
+}
+
+#[get("/providers?<chain_id>")]
+pub async fn get_providers(chain_id: i64, psql: DbConn) -> Custom<Option<Json<String>>>{
+    match psql.run( move |client: &mut Client|{
+        let res = client.query("
+        SELECT provider_id, block_price_gwei, name, api_url
+        FROM event_add_provider
+        WHERE chain_id=$1::BIGINT ORDER BY block_price_gwei ASC limit 100;
+        ", &[&chain_id])?;
+
+        Ok(res.into_iter().map(|r| EventAddProviderResponse{
+            provider_id: r.get(0),
+            block_price_gwei: r.get(1),
+            name: r.get(2),
+            api_url: r.get(3)            
+        }).collect())
+    })
+    .await{
+        Ok::<Vec<EventAddProviderResponse>, postgres::Error>(v)=>Custom(
                     Status::Ok,
                     Option::Some(Json(json!(v).to_string()))
                 ),

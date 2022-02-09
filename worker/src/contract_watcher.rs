@@ -29,8 +29,10 @@ macro_rules! update_old_logs {
                     return;
                 }
             };
-            let mut start_block = match w3.skip_old{
+
+            let mut start_block = match w3.skip_old{ 
                 Some(v)=>{
+                    //will not start from beginning, but will still fetch recent logs incase some were missed during restart
                     if v {bn-w3.batch_size}
                     else {$start_block}
                 }
@@ -137,11 +139,11 @@ fn abi_slice_to_string(b: &[u8])->Result<String, CustomError>{
     // println!("{:?}", b.len());
     if b.len()<32 {return Err(CustomError::InvalidAbiString)}
     let (bytes, mut len) = if b.len()==32{
-        (&b[..32], b.len())
+        (b, b.len())
     }else{
         // let offset = U256::from_big_endian(&b[..32]).as_u64();
         let length = U256::from_big_endian(&b[32..64]).as_usize();
-        (&b[64..], length)
+        (&b[64..(64+length)], length)
     };
     let mut s = "".to_owned();
     for c in bytes{
@@ -159,14 +161,20 @@ pub async fn update_valid_block(psql: Arc<DbConn>, l: Log, chain_id: i64, cur_pr
         return Err(Box::new(CustomError::Inequality(format!("update_valid_block: data len {:?} !>= 96", l.data.0.len()))))
     }
 
+    let dec_d = ethabi::decode(&[
+        ethabi::ParamType::Address,
+        ethabi::ParamType::Uint(256),
+        ethabi::ParamType::Uint(256),
+        ethabi::ParamType::String,
+    ], &l.data.0).unwrap();
     // let block: i64 = l.block_number.unwrap().low_u64().try_into().unwrap();
-    let p_id = U256::from_big_endian(&l.data.0[64..96]).as_u64() as i64;
-    if p_id!=cur_provider_id{info!("CHAIN '{}' -> GOT 'update_valid_block' Event for '{}' I'am '{}', Not updating", chain_id, p_id, cur_provider_id); return Ok(())}
+    let p_id = dec_d[2].clone().into_uint().unwrap().as_u64() as i64;
+    if p_id!=cur_provider_id{info!("CHAIN '{}' -> GOT 'update_valid_block' Event for provider '{}', I'am '{}', Not updating", chain_id, p_id, cur_provider_id); return Ok(())}
 
-    let donor = format!("{:?}", H160::from_slice(&l.data.0[12..32]));
+    let donor = format!("0x{}", dec_d[0].to_string());
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
-    let end_block = U256::from_big_endian(&l.data.0[32..64]).as_u64() as i64;
-    let cid = abi_slice_to_string(&l.data.0[96..])?;
+    let end_block = dec_d[1].clone().into_uint().unwrap().as_u64() as i64;
+    let cid = dec_d[3].to_string();
    
     info!("CHAIN '{}' -> GOT 'update_valid_block' Event :: {:?}, {:?}, {:?}, {:?}, {:?} :: {:?}", &chain_id, &donor, &update_block, &end_block, &p_id, &cid, &l.data.0.len());
 
@@ -192,26 +200,36 @@ pub async fn update_add_provider(psql: Arc<DbConn>, l: Log, chain_id: i64, _cur_
         return Err(Box::new(CustomError::Inequality(format!("update_add_provider: data len {:?} !>= 96", l.data.0.len()))))
     }
 
-    // let block: i64 = l.block_number.unwrap().low_u64().try_into().unwrap();
-    // if p_id!=cur_provider_id{return Err(Box::new(CustomError::Inequality))}
-
-    let owner = format!("{:?}", H160::from_slice(&l.data.0[12..32]));
+    let dec_d = ethabi::decode(&[
+        ethabi::ParamType::Address,
+        ethabi::ParamType::Uint(256),
+        ethabi::ParamType::Uint(256),
+        ethabi::ParamType::String,
+        ethabi::ParamType::String,
+    ], &l.data.0).unwrap();
+    
+    let owner: String = format!("0x{}", dec_d[0]);
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
-    let provider_id = U256::from_big_endian(&l.data.0[32..64]).as_u64() as i64;
-    let block_price = U256::from_big_endian(&l.data.0[64..96])
-                            .div(U256::from_dec_str("1000000000").unwrap()).as_u64() as i64;
-    let api_url = abi_slice_to_string(&l.data.0[96..])?;
+    let provider_id = dec_d[1].clone().into_uint().unwrap().as_u64() as i64;
+    let block_price_gwei = dec_d[2].clone().into_uint().unwrap()
+                            .div(ethabi::ethereum_types::U256::from_dec_str("1000000000").unwrap()).as_u64() as i64;
+    
+    // println!("bb {:?}, {}", dec_d, &l.data.0.len());
+    let api_url = dec_d[3].to_string();
+    let name = dec_d[4].to_string();
    
-    info!("CHAIN '{}' -> GOT 'update_add_provider' Event :: {:?}, {:?}, {:?}, {:?}, {:?} :: {:?}", &chain_id, &owner, &update_block, &block_price, &provider_id, &api_url, &l.data.0.len());
-
+    info!("CHAIN '{}' -> GOT 'update_add_provider' Event :: {}, {}, {}, {}, {} : {}", 
+            &chain_id, &owner, &update_block, &provider_id, &block_price_gwei, &api_url, name);
+    // Ok(())
     let res: Result<_, postgres::Error> = psql.run(move|client|{
         db::add_provider(client, EventAddProvider{
             chain_id,
             update_block,
             owner,
             provider_id,
-            block_price,
-            api_url
+            block_price_gwei,
+            api_url,
+            name
         })
     }).await;
 
@@ -226,12 +244,18 @@ pub async fn update_provider_block_price(psql: Arc<DbConn>, l: Log, chain_id: i6
         return Err(Box::new(CustomError::Inequality(format!("update_provider_block_price: data len {:?} !>= 64", l.data.0.len()))))
     }
 
+    let dec_d = ethabi::decode(&[
+        ethabi::ParamType::Uint(256),
+        ethabi::ParamType::Uint(256),
+    ], &l.data.0).unwrap();
+
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
-    let provider_id = U256::from_big_endian(&l.data.0[..32]).as_u64() as i64;
-    let block_price = U256::from_big_endian(&l.data.0[32..64])
-                            .div(U256::from_dec_str("1000000000").unwrap()).as_u64() as i64; //gwei
+    let provider_id = dec_d[0].clone().into_uint().unwrap().as_u64() as i64;
+    let block_price = dec_d[0].clone().into_uint().unwrap()
+                            .div(ethabi::ethereum_types::U256::from_dec_str("1000000000").unwrap()).as_u64() as i64; //gwei
    
-    info!("CHAIN '{}' -> GOT 'update_provider_block_price' Event :: {:?}, {:?}, {:?} :: {:?}", &chain_id, &update_block, &block_price, &provider_id, &l.data.0.len());
+    info!("CHAIN '{}' -> GOT 'update_provider_block_price' Event :: {:?}, {:?}, {:?} :: {:?}", &chain_id, 
+                                &update_block, &block_price, &provider_id, &l.data.0.len());
 
     let res: Result<_, postgres::Error> = psql.run(move|client|{
         db::update_provider_block_price(client, chain_id, update_block, provider_id, block_price)
@@ -248,9 +272,14 @@ pub async fn update_provider_api_url(psql: Arc<DbConn>, l: Log, chain_id: i64, _
         return Err(Box::new(CustomError::Inequality(format!("update_provider_api_url: data len {:?} !>= 64", l.data.0.len()))))
     }
 
+    let dec_d = ethabi::decode(&[
+        ethabi::ParamType::Uint(256),
+        ethabi::ParamType::String,
+    ], &l.data.0).unwrap();
+
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
-    let provider_id = U256::from_big_endian(&l.data.0[..32]).as_u64() as i64;
-    let api_url = abi_slice_to_string(&l.data.0[96..])?;
+    let provider_id = dec_d[0].clone().into_uint().unwrap().as_u64() as i64;
+    let api_url = dec_d[1].to_string();
    
     info!("CHAIN '{}' -> GOT 'update_provider_api_url' Event :: {:?}, {:?}, {:?} :: {:?}", &chain_id, &update_block, &api_url, &provider_id, &l.data.0.len());
 
@@ -269,14 +298,45 @@ pub async fn update_provider_owner(psql: Arc<DbConn>, l: Log, chain_id: i64, _cu
         return Err(Box::new(CustomError::Inequality(format!("update_provider_owner: data len {:?} !>= 64", l.data.0.len()))))
     }
 
+    let dec_d = ethabi::decode(&[
+        ethabi::ParamType::Uint(256),
+        ethabi::ParamType::String,
+    ], &l.data.0).unwrap();
+
     let update_block = (&l.block_number.unwrap()).as_u64() as i64;
-    let provider_id = U256::from_big_endian(&l.data.0[..32]).as_u64() as i64;
-    let owner = format!("{:?}", H160::from_slice(&l.data.0[44..64]));
+    let provider_id = dec_d[0].clone().into_uint().unwrap().as_u64() as i64;
+    let owner = format!("0x{}", dec_d[1].to_string());
    
     info!("CHAIN '{}' -> GOT 'update_provider_owner' Event :: {:?}, {:?}, {:?} :: {:?}", &chain_id, &update_block, &owner, &provider_id, &l.data.0.len());
 
     let res: Result<_, postgres::Error> = psql.run(move|client|{
         db::update_provider_owner(client, chain_id, update_block, provider_id, owner)
+    }).await;
+
+    match res {
+        Ok(_)=>Ok(()),
+        Err(e)=>Err(Box::new(e))
+    }
+}
+
+pub async fn update_provider_name(psql: Arc<DbConn>, l: Log, chain_id: i64, _cur_provider_id: i64) -> Result<(),  Box<dyn Error>> {
+    if l.data.0.len()<64{
+        return Err(Box::new(CustomError::Inequality(format!("update_provider_name: data len {:?} !>= 64", l.data.0.len()))))
+    }
+
+    let dec_d = ethabi::decode(&[
+        ethabi::ParamType::Uint(256),
+        ethabi::ParamType::String,
+    ], &l.data.0).unwrap();
+
+    let update_block = (&l.block_number.unwrap()).as_u64() as i64;
+    let provider_id = dec_d[0].clone().into_uint().unwrap().as_u64() as i64;
+    let name = dec_d[1].to_string();
+   
+    info!("CHAIN '{}' -> GOT 'update_provider_name' Event :: {:?}, {:?}, {:?} :: {:?}", &chain_id, &update_block, &name, &provider_id, &l.data.0.len());
+
+    let res: Result<_, postgres::Error> = psql.run(move|client|{
+        db::update_provider_name(client, chain_id, update_block, provider_id, name)
     }).await;
 
     match res {
@@ -309,7 +369,7 @@ impl Fairing for ContractService {
             watch_event!("event_update_valid_block", "UpdateValidBlock(address,uint256,uint256,string)"
                             => provider, db, shutdown 
                             => update_valid_block);
-            watch_event!("event_add_provider", "AddProvider(address,uint256,uint256,string)" 
+            watch_event!("event_add_provider", "AddProvider(address,uint256,uint256,string,string)" 
                             => provider, db, shutdown 
                             => update_add_provider);
             watch_event!("event_add_provider", "UpdateProviderBlockPrice(uint256,uint256)" 
@@ -318,9 +378,12 @@ impl Fairing for ContractService {
             watch_event!("event_add_provider", "UpdateProviderApiUrl(uint256,string)" 
                             => provider, db, shutdown 
                             => update_provider_api_url);   
-            watch_event!("event_add_provider", "UpdateProviderApiUrl(uint256,address)" 
+            watch_event!("event_add_provider", "UpdateProviderAddress(uint256,address)" 
                             => provider, db, shutdown 
-                            => update_provider_owner);           
+                            => update_provider_owner); 
+            watch_event!("event_add_provider", "UpdateProviderName(uint256,string)" 
+                            => provider, db, shutdown 
+                            => update_provider_name);          
         }
     }
 }

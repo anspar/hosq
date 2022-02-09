@@ -60,10 +60,3 @@ pub struct CIDInfo{
     pub node_pass: Option<String> // used for failed pin service
 }
 
-#[derive(Debug, Deserialize)]
-pub struct AddProvider{
-    owner: H160,
-    provider_id: U256,
-    block_price: U256,
-    api_url: String
-}

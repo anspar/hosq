@@ -11,7 +11,7 @@ contract("IpfsManager", function (accounts) {
   var provider_id = null;
   before("should assert true", async function () {
     contract = await ipfsManager.deployed();
-    let log = await contract.add_pinning_service("http://192.168.178.41:5001", 10*1e9);
+    let log = await contract.add_pinning_service("http://server:5001", 100*1e9, "Anspar");
     for(let l of log.logs){
       if(l.event==="AddProvider"){
         provider_id = l.args.id.toString();

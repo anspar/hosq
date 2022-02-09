@@ -11,7 +11,7 @@ build_bin:
     paths:
       - worker/target/release/worker
   cache:
-    key: ${CI_COMMIT_REF_SLUG}
+    key: bins
     paths:
       - worker/target
   script:

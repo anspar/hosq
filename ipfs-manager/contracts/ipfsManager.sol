@@ -13,6 +13,7 @@ contract IpfsManager {
     address account;
     uint256 block_price;
     string api_url;
+    string name;
   }
 
   address private deployer;
@@ -23,22 +24,23 @@ contract IpfsManager {
   uint24 developer_fee = 2500; //2.5%
 
   event UpdateValidBlock(address donor, uint256 end_block, uint256 provider_id, string cid);
-  event AddProvider(address creator, uint256 id, uint256 block_price, string api_url);
+  event AddProvider(address creator, uint256 id, uint256 block_price, string api_url, string name);
   event UpdateProviderBlockPrice(uint256 id, uint256 price);
   event UpdateProviderApiUrl(uint256 id, string url);
   event UpdateProviderAddress(uint256 id, address account);
+  event UpdateProviderName(uint256 id, string name);
 
   modifier onlyOwner() {
         require(msg.sender == deployer, "Not the deployer");
         _;
     }
 
-  function add_pinning_service(string memory _api_url, uint256 _block_price) public{
-    require(_block_price>decimals, "block price <= 100000");
+  function add_pinning_service(string memory _api_url, uint256 _block_price, string memory _name) public{
+    require(_block_price>decimals, "block price <= decimals");
     providers_id.increment();
     uint256 id = providers_id.current();
-    service_providers[id] = Provider(msg.sender, _block_price, _api_url);
-    emit AddProvider(msg.sender, id, _block_price, _api_url);
+    service_providers[id] = Provider(msg.sender, _block_price, _api_url, _name);
+    emit AddProvider(msg.sender, id, _block_price, _api_url, _name);
   }
 
   function add_new_valid_block(string memory _cid, uint256 _num_blocks, uint256 _provider_id) public payable{
@@ -88,23 +90,35 @@ contract IpfsManager {
     emit UpdateProviderAddress(_provider_id, _new);
   }
 
+  function update_name(string memory _new, uint256 _provider_id) public{
+    require(msg.sender==service_providers[_provider_id].account, "wrong address");
+    service_providers[_provider_id].name = _new;
+    emit UpdateProviderName(_provider_id, _new);
+  }
+
   function get_per_block_price(uint256 _provider_id) public view returns(uint256){
     return service_providers[_provider_id].block_price;
   }
 
-  function withdraw() public onlyOwner{
-        // get the amount of Ether stored in this contract
-        uint amount = address(this).balance;
+  function get_provider_details(uint256 _provider_id) public view returns(Provider memory){
+    return service_providers[_provider_id];
+  }
 
+  function withdraw() public onlyOwner{
         // send all Ether to deployer
-        (bool success,) = deployer.call{value: amount}("");
+        (bool success,) = deployer.call{value: address(this).balance}("");
         require(success, "Failed to withdraw balance");
   }
 
-  function update_dev_fee(uint24 _fee) public onlyOwner{
+  function update_dev_fee(uint24 _fee, uint24 _decimals) public onlyOwner{
     developer_fee = _fee;
+    decimals = _decimals;
   }
   
+  function get_dev_fee() public view returns(uint24, uint24){
+    return (developer_fee, decimals);
+  }
+
   constructor() {
     deployer = msg.sender;
   }

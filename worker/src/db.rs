@@ -12,18 +12,19 @@ pub fn add_valid_block(client: &mut postgres::Client, event: EventUpdateValidBlo
 
 pub fn add_provider(client: &mut postgres::Client, event: EventAddProvider)->Result<u64, postgres::Error>{
     client.execute("
-                    INSERT INTO event_add_provider (owner, update_block, provider_id, api_url, chain_id, block_price) 
-                    values ( LOWER($1::TEXT), $2::BIGINT, $3::BIGINT, $4::TEXT, $5::BIGINT, $6::BIGINT)
-                    ON CONFLICT (owner, update_block, provider_id, api_url, chain_id, block_price) DO NOTHING
+                    INSERT INTO event_add_provider (owner, update_block, provider_id, api_url, chain_id, block_price_gwei, name) 
+                    values ( LOWER($1::TEXT), $2::BIGINT, $3::BIGINT, $4::TEXT, $5::BIGINT, $6::BIGINT, $7::TEXT)
+                    ON CONFLICT (owner, update_block, provider_id, api_url, chain_id, block_price_gwei, name) DO NOTHING
                 ",
-                    &[&event.owner, &event.update_block, &event.provider_id, &event.api_url, &event.chain_id, &event.block_price]
+                    &[&event.owner, &event.update_block, &event.provider_id, &event.api_url, 
+                                &event.chain_id, &event.block_price_gwei, &event.name]
                 )
 }
 
 pub fn update_provider_block_price(client: &mut postgres::Client, chain_id: i64, update_block: i64, provider_id: i64, block_price: i64)->Result<u64, postgres::Error>{
     client.execute("
                     UPDATE event_add_provider 
-                    SET update_block=$1::BIGINT, block_price=$2::BIGINT
+                    SET update_block=$1::BIGINT, block_price_gwei=$2::BIGINT
                     WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
                 ",
                     &[&update_block, &block_price, &provider_id, &chain_id]
@@ -47,6 +48,16 @@ pub fn update_provider_owner(client: &mut postgres::Client, chain_id: i64, updat
                     WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
                 ",
                     &[&update_block, &owner, &provider_id, &chain_id]
+                )
+}
+
+pub fn update_provider_name(client: &mut postgres::Client, chain_id: i64, update_block: i64, provider_id: i64, name: String)->Result<u64, postgres::Error>{
+    client.execute("
+                    UPDATE event_add_provider 
+                    SET update_block=$1::BIGINT, name=$2::TEXT
+                    WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
+                ",
+                    &[&update_block, &name, &provider_id, &chain_id]
                 )
 }
 

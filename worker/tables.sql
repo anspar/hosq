@@ -19,9 +19,10 @@ create table event_add_provider
     update_block bigint not null,
     owner text not null,
     provider_id bigint not null,
-    block_price bigint not null,
+    block_price_gwei bigint not null,
     api_url text not null,
-    primary key (chain_id, update_block, owner, provider_id, block_price, api_url)
+    name text not null,
+    primary key (chain_id, update_block, owner, provider_id, block_price_gwei, api_url, name)
 );
 
 drop table if exists pinned_cids;

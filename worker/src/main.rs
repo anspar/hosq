@@ -46,6 +46,7 @@ async fn main() {
                 return;
             }
         };
+
         providers_manage.push(types::Web3Node {
             contract_address: provider.contract_address,
             chain_name: provider.chain_name,
@@ -68,7 +69,7 @@ async fn main() {
     };
 
     let _ = rocket::build()
-        .mount("/", routes![handlers::upload_file, handlers::get_cids])
+        .mount("/", routes![handlers::upload_file, handlers::get_cids, handlers::get_providers])
         .attach(types::DbConn::fairing())
         .attach(cors::CORS)
         .attach(ipfs_watcher)
