@@ -37,4 +37,5 @@ pub struct EventAddProviderResponse{
     pub block_price_gwei: i64,
     pub api_url: String, 
     pub name: String, 
+    pub update_block: Option<i64>
 }

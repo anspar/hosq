@@ -148,7 +148,7 @@ pub async fn get_cids(address: String, chain_id: i64, psql: DbConn, providers: &
         FROM event_update_valid_block as euvb
         WHERE euvb.chain_id=$1::BIGINT AND euvb.donor=LOWER($2::TEXT) 
         GROUP BY euvb.cid, euvb.donor
-        ORDER BY eb DESC LIMIT 100;
+        ORDER BY eb ASC LIMIT 100;
         ", &[&chain_id, &address, &(bn as i64)])?;
 
         Ok(res.into_iter().map(|r| PinnedCIDs{
@@ -181,14 +181,51 @@ pub async fn get_providers(chain_id: i64, psql: DbConn) -> Custom<Option<Json<St
         let res = client.query("
         SELECT provider_id, block_price_gwei, name, api_url
         FROM event_add_provider
-        WHERE chain_id=$1::BIGINT ORDER BY block_price_gwei ASC limit 100;
+        WHERE chain_id=$1::BIGINT 
+        ORDER BY block_price_gwei ASC, name ASC 
+        LIMIT 100;
         ", &[&chain_id])?;
 
         Ok(res.into_iter().map(|r| EventAddProviderResponse{
             provider_id: r.get(0),
             block_price_gwei: r.get(1),
             name: r.get(2),
-            api_url: r.get(3)            
+            api_url: r.get(3),
+            update_block: None            
+        }).collect())
+    })
+    .await{
+        Ok::<Vec<EventAddProviderResponse>, postgres::Error>(v)=>Custom(
+                    Status::Ok,
+                    Option::Some(Json(json!(v).to_string()))
+                ),
+        Err(e)=>{
+            error!("Error collecting pinned CIDs > {}", e);
+            return Custom(
+                Status::InternalServerError,
+                Option::None
+            )
+        }
+    }
+}
+
+#[get("/provider?<chain_id>&<address>")]
+pub async fn get_provider(chain_id: i64, address: String, psql: DbConn) -> Custom<Option<Json<String>>>{
+    match psql.run( move |client: &mut Client|{
+        let res = client.query("
+        SELECT provider_id, block_price_gwei, name, api_url, update_block
+        FROM event_add_provider
+        WHERE chain_id=$1::BIGINT AND owner=LOWER($2::TEXT) 
+        ORDER BY name ASC 
+        LIMIT 100;
+        ", &[&chain_id, &address])?;
+
+        Ok(res.into_iter().map(|r| EventAddProviderResponse{
+            provider_id: r.get(0),
+            block_price_gwei: r.get(1),
+            name: r.get(2),
+            api_url: r.get(3),            
+            update_block: r.get(4)            
         }).collect())
     })
     .await{

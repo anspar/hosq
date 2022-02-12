@@ -19,9 +19,9 @@ contract IpfsManager {
   address private deployer;
   mapping(string=>mapping(uint256=>uint256)) private cid_valid_block;
   mapping(uint256=>Provider) private service_providers; // addresses to pay to for pinning services
-  // uint256 private per_block_price = 100*1e9; // 100 Gwei
-  uint24 decimals = 100000;
-  uint24 developer_fee = 2500; //2.5%
+  uint256 private provider_add_fee = 300000000000000; //Wei
+  uint24 private decimals = 100000;
+  uint24 private developer_fee = 2500; //2.5%
 
   event UpdateValidBlock(address donor, uint256 end_block, uint256 provider_id, string cid);
   event AddProvider(address creator, uint256 id, uint256 block_price, string api_url, string name);
@@ -35,7 +35,8 @@ contract IpfsManager {
         _;
     }
 
-  function add_pinning_service(string memory _api_url, uint256 _block_price, string memory _name) public{
+  function add_pinning_service(string memory _api_url, uint256 _block_price, string memory _name) public payable{
+    require(msg.value>=provider_add_fee, "Not enought funds");
     require(_block_price>decimals, "block price <= decimals");
     providers_id.increment();
     uint256 id = providers_id.current();
@@ -117,6 +118,14 @@ contract IpfsManager {
   
   function get_dev_fee() public view returns(uint24, uint24){
     return (developer_fee, decimals);
+  }
+
+  function update_add_provider_fee(uint256 fee) public onlyOwner{
+    provider_add_fee = fee;
+  }
+
+  function get_add_provider_fee() public view returns(uint256){
+    return provider_add_fee;
   }
 
   constructor() {
