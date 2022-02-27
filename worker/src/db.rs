@@ -104,14 +104,16 @@ pub fn add_failed_pin(client: &mut postgres::Client, chain_id: i64, node: &str, 
 pub fn delete_multichain_expired_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<u64, postgres::Error>{
     client.execute("DELETE FROM pinned_cids AS p1
                         USING pinned_cids AS p2
-                        WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT AND p1.chain_id!=p2.chain_id AND p1.cid=p2.cid;",
+                        WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT AND p1.end_block <> -1::BIGINT
+                        AND p1.chain_id!=p2.chain_id 
+                        AND p1.cid=p2.cid;",
             &[&chain_id, &end_block])
 }
 
 pub fn get_single_chain_expired_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<Vec<CIDInfo>, postgres::Error>{
     let res = client.query("SELECT p1.cid, p1.end_block, p1.node From pinned_cids AS p1
                                                     INNER JOIN pinned_cids p2 ON p1.chain_id!=p2.chain_id AND p1.cid!=p2.cid
-                                                    WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT
+                                                    WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT AND p1.end_block <> -1::BIGINT
                                                     GROUP BY p1.chain_id, p1.node, p1.cid, p1.end_block", 
                                 &[&chain_id, &end_block])?;
             
@@ -132,7 +134,7 @@ pub fn get_single_chain_expired_cids(client: &mut postgres::Client, chain_id: i6
 pub fn update_existing_cids_end_block(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<u64, postgres::Error>{
     client.execute("UPDATE pinned_cids as pc
                         SET end_block=euvb.end_block
-                        FROM  event_update_valid_block as euvb
+                        FROM event_update_valid_block as euvb
                         WHERE euvb.chain_id=pc.chain_id AND pc.cid=euvb.cid AND pc.end_block<euvb.end_block 
                                 AND euvb.end_block>$1::BIGINT AND euvb.chain_id=$2::BIGINT;", 
             &[&end_block, &chain_id])
@@ -142,7 +144,9 @@ pub fn get_new_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64
     let r = client.query("SELECT euvb.cid, MAX(euvb.end_block)
                                                 FROM event_update_valid_block as euvb
                                                 LEFT JOIN pinned_cids pc ON euvb.chain_id=pc.chain_id AND euvb.cid=pc.cid
-                                                WHERE euvb.end_block>$1::BIGINT AND euvb.chain_id=$2::BIGINT AND pc.cid IS NULL
+                                                WHERE (euvb.end_block>$1::BIGINT OR euvb.end_block= -1::BIGINT) 
+                                                AND euvb.chain_id=$2::BIGINT 
+                                                AND pc.cid IS NULL
                                                 GROUP BY euvb.cid;", 
                                                         &[&end_block, &chain_id])?;
     let mut rows = vec![];

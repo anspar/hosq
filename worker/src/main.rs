@@ -69,7 +69,10 @@ async fn main() {
     };
 
     let _ = rocket::build()
-        .mount("/", routes![handlers::upload_file, handlers::get_cids, handlers::get_providers, handlers::get_provider])
+        .mount("/", routes![handlers::upload_file, handlers::get_cids, 
+                                        handlers::get_providers, handlers::get_provider,
+                                        handlers::is_pinned, handlers::cid_info,
+                                        handlers::pin_cid])
         .attach(types::DbConn::fairing())
         .attach(cors::CORS)
         .attach(ipfs_watcher)

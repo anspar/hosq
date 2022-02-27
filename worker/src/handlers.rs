@@ -1,5 +1,5 @@
 use super::db;
-use crate::types::{self, DbConn, db::{PinnedCIDs, EventAddProviderResponse}, Web3Node};
+use crate::types::{self, DbConn, db::{PinnedCIDs, EventAddProviderResponse, CIDInfo}, Web3Node, IpfsDagStat};
 use crate::yaml_parser::IPFSNode;
 use postgres::Client;
 use rand::Rng;
@@ -125,6 +125,82 @@ pub async fn upload_file(
     ))
 }
 
+#[post("/pin_cid?<cid>&<chain_id>&<address>")]
+pub async fn pin_cid(
+    cid: String,
+    address: String,
+    nodes: &State<Arc<Vec<IPFSNode>>>,
+    providers: &State<Arc<Vec<Web3Node>>>,
+    chain_id: i64,
+    psql: DbConn,
+) -> Custom<Option<Json<String>>> {
+    let (update_block, b_time) = match get_block_number(chain_id, (**providers).clone()).await{
+        Some(v) => v,
+        None => {
+            return Custom(
+                Status::BadRequest,
+                Option::None,
+            )
+        }
+    };
+
+    let req = match reqwest::Client::new()
+    .post(format!("{}/api/v0/dag/stat?arg={}&progress=false", nodes[0].api_url, cid))
+    .send().await{
+        Ok(v)=>{
+            println!("{:?}", v);
+            v.json::<IpfsDagStat>().await
+        }
+        Err(e)=>{
+            error!("Error fetching CID info {}", e);
+            return Custom(
+                Status::InternalServerError,
+                Option::None,
+            )
+        }
+    };
+
+    let cid_size = match req{
+        Ok(v)=>v.size,
+        Err(e)=>{
+            error!("Error parsing json for CID info {}", e);
+            return Custom(
+                Status::InternalServerError,
+                Option::None,
+            )
+        }
+    };
+
+    let end_block = if cid_size<=10_485_760 { //10Mib
+        -1
+    } else {(update_block + (604800 / b_time)) as i64}; // 7 Days
+
+    match psql.run(move|client|{
+        if !db::cid_exists(client, &cid)?{
+            db::add_valid_block(client, types::db::EventUpdateValidBlock{
+                chain_id,
+                cid,
+                donor: address,
+                update_block: update_block as i64,
+                end_block: end_block,
+                manual_add: Option::Some(true),
+            })?;
+        }
+        Ok::<(), postgres::Error>(())
+    }).await{
+        Ok(_)=>{
+            Custom(
+                Status::Ok,
+                Option::Some(Json("true".to_owned()))
+            )
+        }
+        Err(e)=>{error!("Error Adding cid {}", e); return Custom(
+            Status::InternalServerError,
+            Option::None
+        )}
+    }
+}
+
 #[get("/pinned_cids?<address>&<chain_id>")]
 pub async fn get_cids(address: String, chain_id: i64, psql: DbConn, providers: &State<Arc<Vec<types::Web3Node>>>,) -> Custom<Option<Json<String>>>{
     let bn = match get_block_number(chain_id, (**providers).clone()).await{
@@ -140,11 +216,12 @@ pub async fn get_cids(address: String, chain_id: i64, psql: DbConn, providers: &
         let res = client.query("
         SELECT euvb.cid, euvb.donor, min(euvb.update_block), max(euvb.end_block) as eb, 
                 (SELECT count(pc.node) 
-                FROM pinned_cids as pc 
-                WHERE pc.chain_id=$1::BIGINT AND pc.cid=euvb.cid AND pc.end_block>=$3::BIGINT),
+                    FROM pinned_cids as pc 
+                    WHERE pc.chain_id=$1::BIGINT AND pc.cid=euvb.cid 
+                    AND (pc.end_block>=$3::BIGINT OR pc.end_block=-1::BIGINT)),
                 (SELECT count(fc.node) 
-                FROM failed_pins as fc 
-                WHERE fc.chain_id=$1::BIGINT AND fc.cid=euvb.cid AND fc.end_block>=$3::BIGINT)
+                    FROM failed_pins as fc 
+                    WHERE fc.chain_id=$1::BIGINT AND fc.cid=euvb.cid AND fc.end_block>=$3::BIGINT)
         FROM event_update_valid_block as euvb
         WHERE euvb.chain_id=$1::BIGINT AND euvb.donor=LOWER($2::TEXT) 
         GROUP BY euvb.cid, euvb.donor
@@ -230,6 +307,73 @@ pub async fn get_provider(chain_id: i64, address: String, psql: DbConn) -> Custo
     })
     .await{
         Ok::<Vec<EventAddProviderResponse>, postgres::Error>(v)=>Custom(
+                    Status::Ok,
+                    Option::Some(Json(json!(v).to_string()))
+                ),
+        Err(e)=>{
+            error!("Error collecting pinned CIDs > {}", e);
+            return Custom(
+                Status::InternalServerError,
+                Option::None
+            )
+        }
+    }
+}
+
+
+#[get("/is_pinned/<cid>")]
+pub async fn is_pinned(cid: String, psql: DbConn) -> Custom<Option<Json<String>>>{
+    match psql.run( move |client: &mut Client|{
+        let res = client.query_one("
+        SELECT count(node)
+        FROM pinned_cids
+        WHERE cid=$1::TEXT;
+        ", &[&cid])?;
+
+        Ok(res.get(0))
+    })
+    .await{
+        Ok::<i64, postgres::Error>(v)=>Custom(
+                    Status::Ok,
+                    Option::Some(Json(format!("{{\"nodes\":{}}}", v)))
+                ),
+        Err(e)=>{
+            error!("Error collecting pinned CIDs > {}", e);
+            return Custom(
+                Status::InternalServerError,
+                Option::None
+            )
+        }
+    }
+}
+
+#[get("/cid_info?<cid>")]
+pub async fn cid_info(cid: String, psql: DbConn) -> Custom<Option<Json<String>>>{
+    match psql.run( move |client: &mut Client|{
+        let res = client.query("
+        SELECT pc.chain_id, count(pc.node), max(pc.end_block),
+                fp.chain_id, count(fp.node), max(fp.end_block)
+        FROM pinned_cids pc
+        FULL OUTER JOIN failed_pins fp ON pc.cid=fp.cid AND pc.chain_id=fp.chain_id
+        WHERE pc.cid=$1::TEXT OR fp.cid=$1::TEXT
+        GROUP BY pc.chain_id, fp.chain_id
+        ", &[&cid])?;
+
+        Ok::<Vec<CIDInfo>, postgres::Error>(
+            res.into_iter().map(|r|{
+                CIDInfo{
+                    pinned_chain_id: r.get(0),
+                    pinned_node_count: r.get(1),
+                    pinned_end_block: r.get(2),
+                    failed_chain_id: r.get(3),
+                    failed_node_count: r.get(4),
+                    failed_end_block: r.get(5)
+                }
+            }).collect()
+        )
+    })
+    .await{
+        Ok(v)=>Custom(
                     Status::Ok,
                     Option::Some(Json(json!(v).to_string()))
                 ),

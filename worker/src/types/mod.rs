@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use rocket_sync_db_pools::{database, postgres};
 use serde::{Serialize, Deserialize};
-use web3::{transports::WebSocket, types::{H160, U256}};
+use web3::{transports::WebSocket};
 
 pub mod db;
 pub mod errors;
@@ -58,5 +58,13 @@ pub struct CIDInfo{
     pub node: Option<String>, // used for failed pin service
     pub node_login: Option<String>, // used for failed pin service
     pub node_pass: Option<String> // used for failed pin service
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IpfsDagStat{
+    #[serde(alias = "NumBlocks")]
+    pub num_blocks: i64,
+    #[serde(alias = "Size")]
+    pub size: u64,
 }
 

@@ -39,3 +39,13 @@ pub struct EventAddProviderResponse{
     pub name: String, 
     pub update_block: Option<i64>
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CIDInfo{
+    pub pinned_chain_id: Option<i64>,
+    pub pinned_node_count: Option<i64>,
+    pub pinned_end_block: Option<i64>,
+    pub failed_chain_id: Option<i64>,
+    pub failed_node_count: Option<i64>,
+    pub failed_end_block: Option<i64>,
+}

@@ -10,7 +10,7 @@ use rocket::fairing::{Fairing, Info, Kind};
 use rocket::futures::StreamExt;
 use rocket::{tokio, Orbit, Rocket};
 use web3::signing::keccak256;
-use web3::types::{BlockNumber, FilterBuilder, H160, H256, U64, Log, U256};
+use web3::types::{BlockNumber, FilterBuilder, H160, H256, U64, Log};
 
 use crate::db;
 
