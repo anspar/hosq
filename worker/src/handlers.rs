@@ -233,7 +233,7 @@ pub async fn get_cids(address: String,
                         (SELECT MAX(end_block) 
                         FROM pinned_cids 
                         WHERE chain_id=$1::BIGINT AND cid=euvb.cid),
-                    euvb.end_block ) as eb, 
+                    MAX(euvb.end_block) ) as eb, 
                 (SELECT count(pc.node) 
                     FROM pinned_cids as pc 
                     WHERE pc.chain_id=$1::BIGINT AND pc.cid=euvb.cid 
@@ -243,7 +243,7 @@ pub async fn get_cids(address: String,
                     WHERE fc.chain_id=$1::BIGINT AND fc.cid=euvb.cid AND fc.end_block>=$3::BIGINT) as fc
         FROM event_update_valid_block as euvb
         WHERE euvb.chain_id=$1::BIGINT AND euvb.donor=LOWER($2::TEXT) 
-        GROUP BY euvb.cid, euvb.donor, euvb.end_block
+        GROUP BY euvb.cid, euvb.donor
         ORDER BY fc DESC, c ASC, eb ASC LIMIT 100;
         ", &[&chain_id, &address, &(bn as i64)])?;
 
