@@ -80,6 +80,7 @@ async fn main() {
         .attach(keep_alive::KeepProvidersAlive)
         .manage(nodes)
         .manage(providers_manage)
+        .manage(conf.admin_secret)
         .launch()
         .await;
     //add fairing to keep sockets alive

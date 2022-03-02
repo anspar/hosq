@@ -324,8 +324,6 @@ pub async fn update_provider_name(psql: Arc<DbConn>, l: Log, chain_id: i64, _cur
     }
 }
 
-
-
 #[derive(Debug, Clone)]
 pub struct ContractService;
 

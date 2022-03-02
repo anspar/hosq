@@ -125,12 +125,14 @@ pub async fn upload_file(
     ))
 }
 
-#[post("/pin_cid?<cid>&<chain_id>&<address>")]
+#[post("/pin_cid?<cid>&<chain_id>&<address>&<secret>")]
 pub async fn pin_cid(
     cid: String,
     address: String,
+    secret: Option<String>,
     nodes: &State<Arc<Vec<IPFSNode>>>,
     providers: &State<Arc<Vec<Web3Node>>>,
+    admin_secret: &State<String>,
     chain_id: i64,
     psql: DbConn,
 ) -> Custom<Option<Json<String>>> {
@@ -144,39 +146,48 @@ pub async fn pin_cid(
         }
     };
 
-    let req = match reqwest::Client::new()
-    .post(format!("{}/api/v0/dag/stat?arg={}&progress=false", nodes[0].api_url, cid))
-    .send().await{
-        Ok(v)=>{
-            println!("{:?}", v);
-            v.json::<IpfsDagStat>().await
-        }
-        Err(e)=>{
-            error!("Error fetching CID info {}", e);
-            return Custom(
-                Status::InternalServerError,
-                Option::None,
-            )
-        }
-    };
+    let admin_pin = if let Some(sec) = secret{
+        sec.eq(admin_secret.inner())
+    }else{false};
 
-    let cid_size = match req{
-        Ok(v)=>v.size,
-        Err(e)=>{
-            error!("Error parsing json for CID info {}", e);
-            return Custom(
-                Status::InternalServerError,
-                Option::None,
-            )
-        }
-    };
-
-    let end_block = if cid_size<=10_485_760 { //10Mib
+    let end_block = if admin_pin{
+        warn!("Request contains Admin secret");
         -1
-    } else {(update_block + (604800 / b_time)) as i64}; // 7 Days
+    }else{
+        let req = match reqwest::Client::new()
+        .post(format!("{}/api/v0/dag/stat?arg={}&progress=false", nodes[0].api_url, cid))
+        .send().await{
+            Ok(v)=>{
+                println!("{:?}", v);
+                v.json::<IpfsDagStat>().await
+            }
+            Err(e)=>{
+                error!("Error fetching CID info {}", e);
+                return Custom(
+                    Status::InternalServerError,
+                    Option::None,
+                )
+            }
+        };
+    
+        let cid_size = match req{
+            Ok(v)=>v.size,
+            Err(e)=>{
+                error!("Error parsing json for CID info {}", e);
+                return Custom(
+                    Status::InternalServerError,
+                    Option::None,
+                )
+            }
+        };
+    
+        if cid_size<=10_485_760 { //10Mib
+            -1
+        } else {(update_block + (604800 / b_time)) as i64} // 7 Days
+    };
 
     match psql.run(move|client|{
-        if !db::cid_exists(client, &cid)?{
+        if !db::cid_exists(client, &cid)? || admin_pin{
             db::add_valid_block(client, types::db::EventUpdateValidBlock{
                 chain_id,
                 cid,
@@ -202,7 +213,10 @@ pub async fn pin_cid(
 }
 
 #[get("/pinned_cids?<address>&<chain_id>")]
-pub async fn get_cids(address: String, chain_id: i64, psql: DbConn, providers: &State<Arc<Vec<types::Web3Node>>>,) -> Custom<Option<Json<String>>>{
+pub async fn get_cids(address: String, 
+                        chain_id: i64, 
+                        psql: DbConn, 
+                        providers: &State<Arc<Vec<types::Web3Node>>>,) -> Custom<Option<Json<String>>>{
     let bn = match get_block_number(chain_id, (**providers).clone()).await{
         Some(v) => v.0,
         None => {
@@ -214,18 +228,23 @@ pub async fn get_cids(address: String, chain_id: i64, psql: DbConn, providers: &
     };
     match psql.run( move |client: &mut Client|{
         let res = client.query("
-        SELECT euvb.cid, euvb.donor, min(euvb.update_block), max(euvb.end_block) as eb, 
+        SELECT euvb.cid, euvb.donor, min(euvb.update_block) ub, 
+                COALESCE(
+                        (SELECT MAX(end_block) 
+                        FROM pinned_cids 
+                        WHERE chain_id=$1::BIGINT AND cid=euvb.cid),
+                    euvb.end_block ) as eb, 
                 (SELECT count(pc.node) 
                     FROM pinned_cids as pc 
                     WHERE pc.chain_id=$1::BIGINT AND pc.cid=euvb.cid 
-                    AND (pc.end_block>=$3::BIGINT OR pc.end_block=-1::BIGINT)),
+                    AND (pc.end_block>=$3::BIGINT OR pc.end_block=-1::BIGINT)) as c,
                 (SELECT count(fc.node) 
                     FROM failed_pins as fc 
-                    WHERE fc.chain_id=$1::BIGINT AND fc.cid=euvb.cid AND fc.end_block>=$3::BIGINT)
+                    WHERE fc.chain_id=$1::BIGINT AND fc.cid=euvb.cid AND fc.end_block>=$3::BIGINT) as fc
         FROM event_update_valid_block as euvb
         WHERE euvb.chain_id=$1::BIGINT AND euvb.donor=LOWER($2::TEXT) 
-        GROUP BY euvb.cid, euvb.donor
-        ORDER BY eb ASC LIMIT 100;
+        GROUP BY euvb.cid, euvb.donor, euvb.end_block
+        ORDER BY fc DESC, c ASC, eb ASC LIMIT 100;
         ", &[&chain_id, &address, &(bn as i64)])?;
 
         Ok(res.into_iter().map(|r| PinnedCIDs{
@@ -319,7 +338,6 @@ pub async fn get_provider(chain_id: i64, address: String, psql: DbConn) -> Custo
         }
     }
 }
-
 
 #[get("/is_pinned/<cid>")]
 pub async fn is_pinned(cid: String, psql: DbConn) -> Custom<Option<Json<String>>>{

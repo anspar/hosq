@@ -84,7 +84,7 @@ pub fn get_max_update_block(client: &mut postgres::Client, table: String, chain_
 
 pub fn delete_cid(client: &mut postgres::Client, chain_id: i64, node: String, cid: String, end_block: i64)->Result<u64, postgres::Error>{
     client.execute("DELETE FROM pinned_cids
-                            WHERE chain_id=$1::BIGINT AND node=$2::TEXT AND cid=$3::TEXT AND end_block=$4::BIGINT);", 
+                            WHERE chain_id=$1::BIGINT AND node=$2::TEXT AND cid=$3::TEXT AND end_block=$4::BIGINT;", 
                     &[&chain_id, &node, &cid, &end_block])
 }
 
@@ -111,10 +111,11 @@ pub fn delete_multichain_expired_cids(client: &mut postgres::Client, chain_id: i
 }
 
 pub fn get_single_chain_expired_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<Vec<CIDInfo>, postgres::Error>{
-    let res = client.query("SELECT p1.cid, p1.end_block, p1.node From pinned_cids AS p1
-                                                    INNER JOIN pinned_cids p2 ON p1.chain_id!=p2.chain_id AND p1.cid!=p2.cid
-                                                    WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT AND p1.end_block <> -1::BIGINT
-                                                    GROUP BY p1.chain_id, p1.node, p1.cid, p1.end_block", 
+    let res = client.query("SELECT p1.cid, p1.end_block, p1.node 
+                                          FROM pinned_cids AS p1
+                                          LEFT JOIN pinned_cids p2 ON p1.chain_id!=p2.chain_id AND p1.cid!=p2.cid
+                                          WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT AND p1.end_block <> -1::BIGINT
+                                          GROUP BY p1.chain_id, p1.node, p1.cid, p1.end_block", 
                                 &[&chain_id, &end_block])?;
             
     let mut v = vec![];
