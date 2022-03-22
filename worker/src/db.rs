@@ -1,6 +1,12 @@
-use crate::types::{db::{EventUpdateValidBlock, EventAddProvider}, CIDInfo};
+use crate::types::{
+    db::{EventAddProvider, EventUpdateValidBlock},
+    CIDInfo,
+};
 
-pub fn add_valid_block(client: &mut postgres::Client, event: EventUpdateValidBlock)->Result<u64, postgres::Error>{
+pub fn add_valid_block(
+    client: &mut postgres::Client,
+    event: EventUpdateValidBlock,
+) -> Result<u64, postgres::Error> {
     client.execute("
                     INSERT INTO event_update_valid_block ( donor, update_block, end_block, cid, chain_id, manual_add) 
                     values ( LOWER($1::TEXT), $2::BIGINT, $3::BIGINT, $4::TEXT, $5::BIGINT, $6::BOOLEAN)
@@ -10,98 +16,164 @@ pub fn add_valid_block(client: &mut postgres::Client, event: EventUpdateValidBlo
                 )
 }
 
-pub fn add_provider(client: &mut postgres::Client, event: EventAddProvider)->Result<u64, postgres::Error>{
+pub fn add_provider(
+    client: &mut postgres::Client,
+    event: EventAddProvider,
+) -> Result<u64, postgres::Error> {
     client.execute("
                     INSERT INTO event_add_provider (owner, update_block, provider_id, api_url, chain_id, block_price_gwei, name) 
                     values ( LOWER($1::TEXT), $2::BIGINT, $3::BIGINT, $4::TEXT, $5::BIGINT, $6::BIGINT, $7::TEXT)
                     ON CONFLICT (owner, update_block, provider_id, api_url, chain_id, block_price_gwei, name) DO NOTHING
                 ",
-                    &[&event.owner, &event.update_block, &event.provider_id, &event.api_url, 
-                                &event.chain_id, &event.block_price_gwei, &event.name]
+                    &[&event.owner, &event.update_block, &event.provider_id, &event.api_url, &event.chain_id, &event.block_price_gwei, &event.name]
                 )
 }
 
-pub fn update_provider_block_price(client: &mut postgres::Client, chain_id: i64, update_block: i64, provider_id: i64, block_price: i64)->Result<u64, postgres::Error>{
-    client.execute("
+pub fn update_provider_block_price(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    update_block: i64,
+    provider_id: i64,
+    block_price: i64,
+) -> Result<u64, postgres::Error> {
+    client.execute(
+        "
                     UPDATE event_add_provider 
                     SET update_block=$1::BIGINT, block_price_gwei=$2::BIGINT
                     WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
                 ",
-                    &[&update_block, &block_price, &provider_id, &chain_id]
-                )
+        &[&update_block, &block_price, &provider_id, &chain_id],
+    )
 }
 
-pub fn update_provider_api_url(client: &mut postgres::Client, chain_id: i64, update_block: i64, provider_id: i64, api_url: String)->Result<u64, postgres::Error>{
-    client.execute("
+pub fn update_provider_api_url(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    update_block: i64,
+    provider_id: i64,
+    api_url: String,
+) -> Result<u64, postgres::Error> {
+    client.execute(
+        "
                     UPDATE event_add_provider 
                     SET update_block=$1::BIGINT, api_url=$2::TEXT
                     WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
                 ",
-                    &[&update_block, &api_url, &provider_id, &chain_id]
-                )
+        &[&update_block, &api_url, &provider_id, &chain_id],
+    )
 }
 
-pub fn update_provider_owner(client: &mut postgres::Client, chain_id: i64, update_block: i64, provider_id: i64, owner: String)->Result<u64, postgres::Error>{
-    client.execute("
+pub fn update_provider_owner(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    update_block: i64,
+    provider_id: i64,
+    owner: String,
+) -> Result<u64, postgres::Error> {
+    client.execute(
+        "
                     UPDATE event_add_provider 
                     SET update_block=$1::BIGINT, owner=$2::TEXT
                     WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
                 ",
-                    &[&update_block, &owner, &provider_id, &chain_id]
-                )
+        &[&update_block, &owner, &provider_id, &chain_id],
+    )
 }
 
-pub fn update_provider_name(client: &mut postgres::Client, chain_id: i64, update_block: i64, provider_id: i64, name: String)->Result<u64, postgres::Error>{
-    client.execute("
+pub fn update_provider_name(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    update_block: i64,
+    provider_id: i64,
+    name: String,
+) -> Result<u64, postgres::Error> {
+    client.execute(
+        "
                     UPDATE event_add_provider 
                     SET update_block=$1::BIGINT, name=$2::TEXT
                     WHERE update_block<$1::BIGINT AND provider_id=$3::BIGINT AND chain_id=$4::BIGINT
                 ",
-                    &[&update_block, &name, &provider_id, &chain_id]
-                )
+        &[&update_block, &name, &provider_id, &chain_id],
+    )
 }
 
-pub fn cid_exists(client: &mut postgres::Client, cid: &str)->Result<bool, postgres::Error>{
-    let row = client.query_one("
+pub fn cid_exists(client: &mut postgres::Client, cid: &str) -> Result<bool, postgres::Error> {
+    let row = client.query_one(
+        "
                     SELECT count(cid) FROM event_update_valid_block WHERE cid=$1::TEXT;
                 ",
-                    &[&cid]
-                )?;
-    
+        &[&cid],
+    )?;
+
     let count: i64 = row.try_get(0)?;
-    if count>0{
+    if count > 0 {
         return Ok(true);
     }
     Ok(false)
 }
 
-pub fn get_max_update_block(client: &mut postgres::Client, table: String, chain_id: i64)-> Result<i64, postgres::Error>{
-    let row = client.query_one(&format!("SELECT MAX(update_block) FROM {} WHERE chain_id=$1::BIGINT", table), 
-    &[&chain_id])?;
+pub fn get_max_update_block(
+    client: &mut postgres::Client,
+    table: String,
+    chain_id: i64,
+) -> Result<i64, postgres::Error> {
+    let row = client.query_one(
+        &format!(
+            "SELECT MAX(update_block) FROM {} WHERE chain_id=$1::BIGINT",
+            table
+        ),
+        &[&chain_id],
+    )?;
     let maxb: i64 = row.try_get(0)?;
     Ok(maxb)
 }
 
-pub fn delete_cid(client: &mut postgres::Client, chain_id: i64, node: String, cid: String, end_block: i64)->Result<u64, postgres::Error>{
+pub fn delete_cid(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    node: String,
+    cid: String,
+    end_block: i64,
+) -> Result<u64, postgres::Error> {
     client.execute("DELETE FROM pinned_cids
                             WHERE chain_id=$1::BIGINT AND node=$2::TEXT AND cid=$3::TEXT AND end_block=$4::BIGINT;", 
                     &[&chain_id, &node, &cid, &end_block])
 }
 
-pub fn add_cid(client: &mut postgres::Client, chain_id: i64, node: String, cid: String, end_block: i64)->Result<u64, postgres::Error>{
-    client.execute("INSERT INTO pinned_cids (chain_id, node, cid, end_block)
-                                          VALUES ($1::BIGINT, $2::TEXT, $3::TEXT, $4::BIGINT)", 
-                            &[&chain_id, &node, &cid, &end_block])
+pub fn add_cid(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    node: String,
+    cid: String,
+    end_block: i64,
+) -> Result<u64, postgres::Error> {
+    client.execute(
+        "INSERT INTO pinned_cids (chain_id, node, cid, end_block)
+                                          VALUES ($1::BIGINT, $2::TEXT, $3::TEXT, $4::BIGINT)",
+        &[&chain_id, &node, &cid, &end_block],
+    )
 }
 
-pub fn add_failed_pin(client: &mut postgres::Client, chain_id: i64, node: &str, cid: &str, end_block: i64)->Result<u64, postgres::Error>{
-    client.execute("INSERT INTO failed_pins (chain_id, node, cid, end_block)
+pub fn add_failed_pin(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    node: &str,
+    cid: &str,
+    end_block: i64,
+) -> Result<u64, postgres::Error> {
+    client.execute(
+        "INSERT INTO failed_pins (chain_id, node, cid, end_block)
                                     VALUES ($1::BIGINT, $2::TEXT, $3::TEXT, $4::BIGINT)
-                                    ON CONFLICT (chain_id, node, cid, end_block) DO NOTHING", 
-                &[&chain_id, &node, &cid, &end_block])
+                                    ON CONFLICT (chain_id, node, cid, end_block) DO NOTHING",
+        &[&chain_id, &node, &cid, &end_block],
+    )
 }
 
-pub fn delete_multichain_expired_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<u64, postgres::Error>{
+pub fn delete_multichain_expired_cids(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    end_block: i64,
+) -> Result<u64, postgres::Error> {
     client.execute("DELETE FROM pinned_cids AS p1
                         USING pinned_cids AS p2
                         WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT AND p1.end_block <> -1::BIGINT
@@ -110,29 +182,37 @@ pub fn delete_multichain_expired_cids(client: &mut postgres::Client, chain_id: i
             &[&chain_id, &end_block])
 }
 
-pub fn get_single_chain_expired_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<Vec<CIDInfo>, postgres::Error>{
+pub fn get_single_chain_expired_cids(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    end_block: i64,
+) -> Result<Vec<CIDInfo>, postgres::Error> {
     let res = client.query("SELECT p1.cid, p1.end_block, p1.node 
                                           FROM pinned_cids AS p1
                                           LEFT JOIN pinned_cids p2 ON p1.chain_id!=p2.chain_id AND p1.cid!=p2.cid
                                           WHERE p1.chain_id=$1::BIGINT AND p1.end_block<=$2::BIGINT AND p1.end_block <> -1::BIGINT
                                           GROUP BY p1.chain_id, p1.node, p1.cid, p1.end_block", 
                                 &[&chain_id, &end_block])?;
-            
+
     let mut v = vec![];
-    for r in res{
-        v.push(CIDInfo{
+    for r in res {
+        v.push(CIDInfo {
             chain_id: Option::Some(chain_id.clone()),
             cid: r.get(0),
             end_block: r.get(1),
             node: r.get(2),
             node_login: Option::None,
-            node_pass: Option::None
+            node_pass: Option::None,
         });
     }
     Ok(v)
 }
 
-pub fn update_existing_cids_end_block(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<u64, postgres::Error>{
+pub fn update_existing_cids_end_block(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    end_block: i64,
+) -> Result<u64, postgres::Error> {
     client.execute("UPDATE pinned_cids as pc
                         SET end_block=euvb.end_block
                         FROM event_update_valid_block as euvb
@@ -141,7 +221,11 @@ pub fn update_existing_cids_end_block(client: &mut postgres::Client, chain_id: i
             &[&end_block, &chain_id])
 }
 
-pub fn get_new_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<Vec<CIDInfo>, postgres::Error>{
+pub fn get_new_cids(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    end_block: i64,
+) -> Result<Vec<CIDInfo>, postgres::Error> {
     let r = client.query("SELECT euvb.cid, MAX(euvb.end_block)
                                                 FROM event_update_valid_block as euvb
                                                 LEFT JOIN pinned_cids pc ON euvb.chain_id=pc.chain_id AND euvb.cid=pc.cid
@@ -151,38 +235,50 @@ pub fn get_new_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64
                                                 GROUP BY euvb.cid;", 
                                                         &[&end_block, &chain_id])?;
     let mut rows = vec![];
-    for row in r{
-        rows.push(CIDInfo{
+    for row in r {
+        rows.push(CIDInfo {
             chain_id: Option::Some(chain_id.clone()),
             cid: row.get(0),
             end_block: row.get(1),
             node: Option::None,
             node_login: Option::None,
-            node_pass: Option::None
+            node_pass: Option::None,
         })
     }
     Ok(rows)
 }
 
-pub fn delete_expired_failed_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<u64, postgres::Error>{
-    client.execute("DELETE FROM failed_pins WHERE end_block<=$1::BIGINT AND chain_id=$2::BIGINT", 
-            &[&end_block, &chain_id])
+pub fn delete_expired_failed_cids(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    end_block: i64,
+) -> Result<u64, postgres::Error> {
+    client.execute(
+        "DELETE FROM failed_pins WHERE end_block<=$1::BIGINT AND chain_id=$2::BIGINT",
+        &[&end_block, &chain_id],
+    )
 }
 
-pub fn get_failed_cids(client: &mut postgres::Client, chain_id: i64, end_block: i64)->Result<Vec<CIDInfo>, postgres::Error>{
-    let r = client.query("SELECT node, cid, end_block
+pub fn get_failed_cids(
+    client: &mut postgres::Client,
+    chain_id: i64,
+    end_block: i64,
+) -> Result<Vec<CIDInfo>, postgres::Error> {
+    let r = client.query(
+        "SELECT node, cid, end_block
                                                 FROM failed_pins
-                                                WHERE end_block>$1::BIGINT AND chain_id=$2::BIGINT", 
-                                                        &[&end_block, &chain_id])?;
+                                                WHERE end_block>$1::BIGINT AND chain_id=$2::BIGINT",
+        &[&end_block, &chain_id],
+    )?;
     let mut rows = vec![];
-    for row in r{
-        rows.push(CIDInfo{
+    for row in r {
+        rows.push(CIDInfo {
             chain_id: Option::Some(chain_id.clone()),
             node: row.get(0),
             cid: row.get(1),
             end_block: row.get(2),
             node_login: Option::None,
-            node_pass: Option::None
+            node_pass: Option::None,
         })
     }
     Ok(rows)

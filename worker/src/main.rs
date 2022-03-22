@@ -6,16 +6,16 @@ extern crate log;
 
 use std::env;
 use std::sync::Arc;
-use web3::Web3;
+use types::State;
 mod contract_watcher;
 mod cors;
-mod ipfs_watcher;
-mod yaml_parser;
 mod db;
-mod types;
 mod handlers;
+mod ipfs_watcher;
 mod keep_alive;
-
+mod providers;
+mod types;
+mod yaml_parser;
 
 #[rocket::main]
 async fn main() {
@@ -29,58 +29,42 @@ async fn main() {
     let conf = yaml_parser::get_conf(&args[1]);
     //   let pre_release = conf.pre_release;
     let nodes = Arc::new(conf.ipfs_nodes.unwrap());
-    let mut providers_manage = vec![];
 
-    for provider in conf.providers.unwrap() {
-        let transport = web3::transports::WebSocket::new(&(provider.provider))
-            .await
-            .unwrap();
-        let socket = Arc::new(Web3::new(transport));
-        let chain_id = match socket.eth().chain_id().await {
-            Ok(v) => v.as_u64() as i64,
-            Err(e) => {
-                error!(
-                    "Error getting chain_id for {}: {:?}",
-                    &provider.chain_name, e
-                );
-                return;
-            }
-        };
-
-        providers_manage.push(types::Web3Node {
-            contract_address: provider.contract_address,
-            chain_name: provider.chain_name,
-            start_block: provider.start_block,
-            block_time_sec: provider.block_time_sec,
-            update_interval_sec: provider.update_interval_sec,
-            provider_id: provider.provider_id,
-            chain_id,
-            batch_size: provider.batch_size,
-            web3: socket,
-            skip_old: provider.skip_old,
-            keep_alive: provider.keep_alive
-        });
-    }
-
+    let providers_service = providers::Providers {};
+    let providers_manage = providers_service
+        .get_providers(conf.providers.unwrap())
+        .await
+        .unwrap();
     let providers_manage = Arc::new(providers_manage);
 
     let ipfs_watcher = ipfs_watcher::IPFSService {
-        retry_failed_cids_sec: conf.retry_failed_cids_sec.unwrap(),
+        retry_failed_cids_sec: conf.retry_failed_cids_sec,
+        update_nodes_sec: conf.update_nodes_sec,
     };
 
     let _ = rocket::build()
-        .mount("/", routes![handlers::upload_file, handlers::get_cids, 
-                                        handlers::get_providers, handlers::get_provider,
-                                        handlers::is_pinned, handlers::cid_info,
-                                        handlers::pin_cid])
+        .mount(
+            "/",
+            routes![
+                handlers::upload_file,
+                handlers::get_cids,
+                handlers::get_providers,
+                handlers::get_provider,
+                handlers::is_pinned,
+                handlers::cid_info,
+                handlers::pin_cid
+            ],
+        )
         .attach(types::DbConn::fairing())
         .attach(cors::CORS)
         .attach(ipfs_watcher)
         .attach(contract_watcher::ContractService)
-        .attach(keep_alive::KeepProvidersAlive)
-        .manage(nodes)
-        .manage(providers_manage)
-        .manage(conf.admin_secret)
+        .attach(providers_service)
+        .manage(State {
+            nodes,
+            providers: providers_manage,
+            admin_secret: conf.admin_secret,
+        })
         .launch()
         .await;
     //add fairing to keep sockets alive

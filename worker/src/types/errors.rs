@@ -2,8 +2,7 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum CustomError {
-    Inequality(String)
-    // InvalidAbiString
+    Inequality(String), // InvalidAbiString
 }
 
 impl std::error::Error for CustomError {}
