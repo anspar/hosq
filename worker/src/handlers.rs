@@ -25,10 +25,7 @@ async fn get_block_number(chain_id: i64, providers: Arc<Vec<Web3Node>>) -> Optio
             match bn {
                 Some(v) => return Option::Some((v as u64, provider.block_time_sec)),
                 None => {
-                    error!(
-                        "Error getting block number for {}",
-                        &provider.chain_name
-                    );
+                    error!("Error getting block number for {}", &provider.chain_name);
                     return Option::None;
                 }
             }

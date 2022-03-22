@@ -53,7 +53,7 @@ macro_rules! get_logs {
                 continue;
             }
 
-            info!("CHAIN '{}' - '{}' > GETTING old logs for '{}' from block '{}'", &$provider.chain_name, $provider.chain_id, $name, $start_block);
+            info!("CHAIN '{}' - '{}' > Looking '{}' logs from block '{}'", &$provider.chain_name, $provider.chain_id, $name, $start_block);
             let filter = if bn-start_block>$provider.batch_size{
                 let tf = $filter.clone().from_block(BlockNumber::Number(
                     U64::from_dec_str(start_block.to_string().as_str()).unwrap(),
