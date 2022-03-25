@@ -1,11 +1,14 @@
 use std::error::Error;
 use std::ops::Div;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use crate::types::db::{EventAddProvider, EventUpdateValidBlock};
 use crate::types::errors::CustomError;
-use crate::types::{DbConn, State};
+use crate::types::{
+    monitoring::{Event, Monitoring},
+    DbConn, State,
+};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::{tokio, Orbit, Rocket};
 use web3::signing::keccak256;
@@ -14,13 +17,10 @@ use web3::types::{BlockNumber, FilterBuilder, Log, H160, H256, U64};
 use crate::db;
 
 macro_rules! get_logs {
-    ($name:expr => $provider:expr, $psql:expr, $filter:expr, $start_block:expr => $f:expr) => {
+    ($name:expr => $provider:expr, $psql:expr, $filter:expr, $start_block:expr, $mon:expr => $f:expr) => {
         let mut start_block = $start_block;
         loop{
-            let web3 = {
-                $provider.web3.clone().lock().unwrap().clone()
-            };
-
+            let start = Instant::now();
             let bn = {
                 $provider.latest_block.clone().lock().unwrap().clone()
             };
@@ -56,6 +56,10 @@ macro_rules! get_logs {
                 .await;
                 continue;
             }
+
+            let web3 = {
+                $provider.web3.clone().lock().unwrap().clone()
+            };
 
             info!("CHAIN '{}' - '{}' > Looking '{}' logs from block '{}'", &$provider.chain_name, $provider.chain_id, $name, $start_block);
             let filter = if bn-start_block>$provider.batch_size{
@@ -93,6 +97,7 @@ macro_rules! get_logs {
                     continue;
                 }
             };
+            let log_size = logs.len();
             for l in logs {
                 // failed inserts will be retried in the next loop
                 match $f($psql.clone(), l, $provider.chain_id, $provider.provider_id).await{
@@ -104,14 +109,29 @@ macro_rules! get_logs {
                     _=>{}
                 };
             }
+
+            {
+                let mut data = $mon.lock().unwrap();
+                let obj = data.entry($provider.chain_id as u64).or_insert(Monitoring::default());
+                if obj.events.len()>=30{
+                    obj.events.remove(0);
+                }
+                obj.events.push(Event{
+                    event: $name.to_owned(),
+                    last_update: chrono::Utc::now().timestamp_millis(),
+                    update_block: bn,
+                    update_duration: start.elapsed().as_secs(),
+                    count: log_size
+                })
+            }
         }
 
     };
 }
 
 macro_rules! watch_event {
-    ($db_name:expr, $topic:expr => $provider:expr, $psql:expr, $r_off:expr => $func:expr) => {
-        let (provider, psql, r_off) = ($provider.clone(), $psql.clone(), $r_off.clone());
+    ($db_name:expr, $topic:expr => $provider:expr, $psql:expr, $r_off:expr, $mon:expr => $func:expr) => {
+        let (provider, psql, r_off, mon) = ($provider.clone(), $psql.clone(), $r_off.clone(), $mon.clone());
         tokio::spawn(async move {
             let c_id = provider.chain_id.clone();
             let block = match psql.run(move |client| {
@@ -145,7 +165,7 @@ macro_rules! watch_event {
                 &provider.chain_name, &provider.chain_id, $topic, &block
             );
 
-            get_logs!($topic => provider, psql, filter, block => $func);
+            get_logs!($topic => provider, psql, filter, block, mon => $func);
         })
     };
 }
@@ -489,25 +509,26 @@ impl Fairing for ContractService {
 
         let shutdown = rocket.shutdown();
         let providers = rocket.state::<State>().unwrap().clone().providers.clone();
+        let mon = rocket.state::<State>().unwrap().clone().monitoring.clone();
 
         for provider in &*providers {
             watch_event!("event_update_valid_block", "UpdateValidBlock(address,uint256,uint256,string)"
-                            => provider, db, shutdown 
+                            => provider, db, shutdown, mon 
                             => update_valid_block);
             watch_event!("event_add_provider", "AddProvider(address,uint256,uint256,string,string)" 
-                            => provider, db, shutdown 
+                            => provider, db, shutdown, mon 
                             => update_add_provider);
             watch_event!("event_add_provider", "UpdateProviderBlockPrice(uint256,uint256)" 
-                            => provider, db, shutdown 
+                            => provider, db, shutdown, mon 
                             => update_provider_block_price);
             watch_event!("event_add_provider", "UpdateProviderApiUrl(uint256,string)" 
-                            => provider, db, shutdown 
+                            => provider, db, shutdown, mon 
                             => update_provider_api_url);
             watch_event!("event_add_provider", "UpdateProviderAddress(uint256,address)" 
-                            => provider, db, shutdown 
+                            => provider, db, shutdown, mon 
                             => update_provider_owner);
             watch_event!("event_add_provider", "UpdateProviderName(uint256,string)" 
-                            => provider, db, shutdown 
+                            => provider, db, shutdown, mon 
                             => update_provider_name);
         }
     }

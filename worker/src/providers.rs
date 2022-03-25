@@ -6,7 +6,7 @@ use rocket::{
 };
 use web3::{transports::WebSocket, Error, Web3};
 
-use crate::types::{config::Provider, State, Web3Node};
+use crate::types::{config::Provider, monitoring::Monitoring, State, Web3Node};
 
 #[derive(Debug, Clone)]
 pub struct Providers {}
@@ -58,28 +58,46 @@ impl Fairing for Providers {
     }
 
     async fn on_liftoff(&self, rocket: &Rocket<Orbit>) {
-        let providers = rocket.state::<State>().unwrap().providers.clone();
+        let state = rocket.state::<State>().unwrap();
+        let providers = state.providers.clone();
+        // let mon = state.monitoring.clone();
         // let shutdown = rocket.shutdown();
 
         for provider in &*providers {
-            let (p, this) = (provider.clone(), self.clone());
+            let (p, this, mon) = (provider.clone(), self.clone(), state.monitoring.clone());
             tokio::spawn(async move {
+                let mut socket_create_time = chrono::Utc::now().timestamp_millis();
                 loop {
                     let web3 = { p.web3.clone().lock().unwrap().clone() };
+
                     let bn = match web3.eth().block_number().await {
                         Ok(v) => v.as_u64() as i64,
                         Err(e) => {
                             error!("Error getting block number for {}: {:?}", &p.chain_name, e);
                             // r_off.notify();
                             info!(
-                                "CHAIN '{}' '{}' > Creating new connection",
+                                "CHAIN '{}' - '{}' > Creating new connection",
                                 &p.chain_name, p.chain_id
                             );
-                            let new_socket = this.create_provider(&p.url).await.unwrap();
+                            let new_socket = match this.create_provider(&p.url).await {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    error!(
+                                        "CHAIN '{}' - '{}' > failed to create a new socket '{}', will try again in '{} sec.'",
+                                        p.chain_name, p.chain_id, e, p.block_update_sec
+                                    );
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(
+                                        p.block_update_sec,
+                                    ))
+                                    .await;
+                                    continue;
+                                }
+                            };
                             {
                                 let mut socket = p.web3.lock().unwrap();
                                 *socket = new_socket;
                             }
+                            socket_create_time = chrono::Utc::now().timestamp_millis();
                             continue;
                         }
                     };
@@ -89,12 +107,21 @@ impl Fairing for Providers {
                         *data = Some(bn);
                     }
 
+                    {
+                        let mut data = mon.lock().unwrap();
+                        let obj = data
+                            .entry(p.chain_id as u64)
+                            .or_insert(Monitoring::default());
+                        obj.current_block = bn as u64;
+                        obj.socket_create_time = socket_create_time;
+                        obj.chain_name = p.chain_name.clone();
+                    }
+
                     info!(
                         "CHAIN '{}' - '{}' > Socket is alive at block '{}'",
                         p.chain_name, p.chain_id, bn
                     );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(p.block_update_sec))
-                        .await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(p.block_update_sec)).await;
                 }
             });
         }

@@ -4,8 +4,9 @@ extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
+use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use types::State;
 mod contract_watcher;
 mod cors;
@@ -51,7 +52,8 @@ async fn main() {
                 handlers::get_provider,
                 handlers::is_pinned,
                 handlers::cid_info,
-                handlers::pin_cid
+                handlers::pin_cid,
+                handlers::monitoring,
             ],
         )
         .attach(types::DbConn::fairing())
@@ -63,6 +65,7 @@ async fn main() {
             nodes,
             providers: providers_manage,
             admin_secret: conf.admin_secret,
+            monitoring: Arc::new(Mutex::new(HashMap::new())),
         })
         .launch()
         .await;

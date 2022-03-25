@@ -1,6 +1,6 @@
 use rocket::{
     fairing::{Fairing, Info, Kind},
-    tokio, Orbit, Rocket
+    tokio, Orbit, Rocket,
 };
 use std::sync::Arc;
 

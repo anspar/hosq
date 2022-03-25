@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use rocket_sync_db_pools::{database, postgres};
 use serde::{Deserialize, Serialize};
@@ -7,6 +10,7 @@ use web3::transports::WebSocket;
 pub mod config;
 pub mod db;
 pub mod errors;
+pub mod monitoring;
 
 #[database("pg")]
 #[derive(Debug)]
@@ -76,11 +80,10 @@ pub struct IpfsDagStat {
 //     chain_id: u64,
 //     block: Arc<Mutex<u64>>
 // }
-
 #[derive(Debug)]
 pub struct State {
     pub nodes: Arc<Vec<config::IPFSNode>>,
     pub providers: Arc<Vec<Web3Node>>,
     pub admin_secret: String,
-    // block_numbers: Vec<BlockNum>
+    pub monitoring: Arc<Mutex<HashMap<u64, monitoring::Monitoring>>>, // block_numbers: Vec<BlockNum>
 }

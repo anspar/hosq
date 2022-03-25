@@ -418,3 +418,33 @@ pub async fn cid_info(cid: String, psql: DbConn) -> Custom<Option<Json<String>>>
         }
     }
 }
+
+#[get("/monitoring")]
+pub async fn monitoring(state: &State<types::State>) -> Custom<Option<Json<String>>> {
+    let mon = { state.monitoring.clone().lock().unwrap().clone() };
+    Custom(Status::Ok, Option::Some(Json(json!(mon).to_string())))
+    // match psql
+    //     .run(move |client: &mut Client| {
+    //         let res = client.query_one(
+    //             "
+    //     SELECT count(node)
+    //     FROM pinned_cids
+    //     WHERE cid=$1::TEXT;
+    //     ",
+    //             &[&cid],
+    //         )?;
+
+    //         Ok(res.get(0))
+    //     })
+    //     .await
+    // {
+    //     Ok::<i64, postgres::Error>(v) => Custom(
+    //         Status::Ok,
+    //         Option::Some(Json(format!("{{\"nodes\":{}}}", v))),
+    //     ),
+    //     Err(e) => {
+    //         error!("Error collecting pinned CIDs > {}", e);
+    //         return Custom(Status::InternalServerError, Option::None);
+    //     }
+    // }
+}
