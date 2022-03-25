@@ -43,13 +43,12 @@ pub struct Web3Node {
     pub chain_name: String,
     pub start_block: i64,
     pub block_time_sec: u64,
-    pub update_interval_sec: u64,
+    pub block_update_sec: u64,
     pub provider_id: i64,
     pub chain_id: i64, //postgres takes i64
     pub batch_size: i64,
     pub log_update_sec: u64,
     pub skip_old: Option<bool>,
-    pub keep_alive: Option<bool>,
     pub web3: Arc<Mutex<web3::Web3<WebSocket>>>,
     pub latest_block: Arc<Mutex<Option<i64>>>,
 }

@@ -94,7 +94,15 @@ macro_rules! get_logs {
                 }
             };
             for l in logs {
-                $f($psql.clone(), l, $provider.chain_id, $provider.provider_id).await.unwrap();
+                // failed inserts will be retried in the next loop
+                match $f($psql.clone(), l, $provider.chain_id, $provider.provider_id).await{
+                    Err(e)=>{
+                        error!("CHAIN '{}' - '{}' > Failed to insert log '{}' > '{}'",
+                        &$provider.chain_name, &$provider.chain_id, e, $name);
+                        continue;
+                    }
+                    _=>{}
+                };
             }
         }
 
@@ -120,7 +128,13 @@ macro_rules! watch_event {
                 }
             };
 
-            let contract_address = H160::from_str(&provider.contract_address).unwrap();
+            let contract_address = match H160::from_str(&provider.contract_address){
+                Ok(v)=>v,
+                Err(e)=>{error!(
+                    "CHAIN '{}' - '{}' > '{}', Invalid contract address '{}' > {}",
+                    provider.chain_name, provider.chain_id, $topic, &provider.contract_address, e
+                ); r_off.notify(); return}
+            };
             let event = H256::from_slice(&keccak256($topic.as_bytes()));
             let filter = FilterBuilder::default()
                 .address(vec![contract_address])
@@ -132,22 +146,6 @@ macro_rules! watch_event {
             );
 
             get_logs!($topic => provider, psql, filter, block => $func);
-
-            // let e = web3.eth_subscribe().subscribe_logs(filter.build()).await.unwrap();
-
-            // e.for_each(|event| async {
-            //     let _ = match event {
-            //         Ok(l) => {
-            //             $func(psql.clone(), l, chain_id, provider.provider_id)
-            //                 .await
-            //                 .unwrap();
-            //         }
-            //         Err(e) => {
-            //             error!("'{}' data: Error parsing Log '{}'", $topic, e)
-            //         }
-            //     };
-            // })
-            // .await;
         })
     };
 }

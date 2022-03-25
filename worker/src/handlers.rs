@@ -1,7 +1,6 @@
 use super::db;
 use crate::types::{
     self,
-    config::IPFSNode,
     db::{CIDInfo, EventAddProviderResponse, PinnedCIDs},
     DbConn, IpfsDagStat, Web3Node,
 };

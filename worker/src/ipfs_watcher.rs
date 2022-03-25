@@ -1,10 +1,10 @@
 use rocket::{
     fairing::{Fairing, Info, Kind},
-    tokio, Orbit, Rocket, Shutdown,
+    tokio, Orbit, Rocket
 };
 use std::sync::Arc;
 
-use crate::types::{self, CIDInfo, DbConn, Web3Node};
+use crate::types::{CIDInfo, DbConn, Web3Node};
 use crate::{
     db,
     types::{config::IPFSNode, State},

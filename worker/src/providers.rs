@@ -34,7 +34,7 @@ impl Providers {
                 chain_name: provider.chain_name.to_owned(),
                 start_block: provider.start_block,
                 block_time_sec: provider.block_time_sec,
-                update_interval_sec: provider.update_interval_sec,
+                block_update_sec: provider.block_update_sec,
                 provider_id: provider.provider_id,
                 chain_id,
                 log_update_sec: provider.log_update_sec,
@@ -42,7 +42,6 @@ impl Providers {
                 web3: Arc::new(Mutex::new(socket)),
                 latest_block: Arc::new(Mutex::new(Some(latest_block))),
                 skip_old: provider.skip_old,
-                keep_alive: provider.keep_alive,
             });
         }
         Ok(providers_manage)
@@ -94,7 +93,7 @@ impl Fairing for Providers {
                         "CHAIN '{}' - '{}' > Socket is alive at block '{}'",
                         p.chain_name, p.chain_id, bn
                     );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(p.update_interval_sec))
+                    tokio::time::sleep(tokio::time::Duration::from_secs(p.block_update_sec))
                         .await;
                 }
             });

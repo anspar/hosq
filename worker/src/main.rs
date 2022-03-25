@@ -12,7 +12,6 @@ mod cors;
 mod db;
 mod handlers;
 mod ipfs_watcher;
-mod keep_alive;
 mod providers;
 mod types;
 mod yaml_parser;
