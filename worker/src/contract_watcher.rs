@@ -14,9 +14,13 @@ use web3::types::{BlockNumber, FilterBuilder, Log, H160, H256, U64};
 use crate::db;
 
 macro_rules! get_logs {
-    ($name:expr => $provider:expr, $psql:expr, $filter:expr, $start_block:expr, $web3:expr => $f:expr) => {
+    ($name:expr => $provider:expr, $psql:expr, $filter:expr, $start_block:expr => $f:expr) => {
         let mut start_block = $start_block;
         loop{
+            let web3 = {
+                $provider.web3.clone().lock().unwrap().clone()
+            };
+
             let bn = {
                 $provider.latest_block.clone().lock().unwrap().clone()
             };
@@ -77,7 +81,18 @@ macro_rules! get_logs {
                 start_block = bn;
                 tf
             };
-            let logs = $web3.eth().logs(filter).await.unwrap();
+            let logs = match web3.eth().logs(filter).await{
+                Ok(v)=>v,
+                Err(e)=>{
+                    warn!("CHAIN '{}' - '{}' > Failed to fetch logs '{}', will sleep for '{} sec.' > '{}'",
+                    &$provider.chain_name, &$provider.chain_id, e, &$provider.log_update_sec, $name);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(
+                    $provider.log_update_sec,
+                    ))
+                    .await;
+                    continue;
+                }
+            };
             for l in logs {
                 $f($psql.clone(), l, $provider.chain_id, $provider.provider_id).await.unwrap();
             }
@@ -90,9 +105,6 @@ macro_rules! watch_event {
     ($db_name:expr, $topic:expr => $provider:expr, $psql:expr, $r_off:expr => $func:expr) => {
         let (provider, psql, r_off) = ($provider.clone(), $psql.clone(), $r_off.clone());
         tokio::spawn(async move {
-            let web3 = {
-                provider.web3.clone().lock().unwrap().clone()
-            };
             let c_id = provider.chain_id.clone();
             let block = match psql.run(move |client| {
                     db::get_max_update_block(client, $db_name.to_owned(), c_id)
@@ -119,8 +131,7 @@ macro_rules! watch_event {
                 &provider.chain_name, &provider.chain_id, $topic, &block
             );
 
-            get_logs!($topic => provider, psql, filter,
-                                block, web3 => $func);
+            get_logs!($topic => provider, psql, filter, block => $func);
 
             // let e = web3.eth_subscribe().subscribe_logs(filter.build()).await.unwrap();
 
