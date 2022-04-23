@@ -109,7 +109,8 @@ macro_rules! get_logs {
                     _=>{}
                 };
             }
-
+            
+            // monitoring the performance
             {
                 let mut data = $mon.lock().unwrap();
                 let obj = data.entry($provider.chain_id as u64).or_insert(Monitoring::default());

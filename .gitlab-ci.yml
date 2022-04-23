@@ -12,8 +12,8 @@ build_bin:
       - worker/target/release/worker
   cache:
     key: bins
-    paths:
-      - worker/target
+    untracked: true
+    when: 'always'
   script:
     - cd worker
     - cargo build --release

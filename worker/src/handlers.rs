@@ -131,7 +131,7 @@ pub async fn upload_file(
     ))
 }
 
-#[post("/pin_cid?<cid>&<chain_id>&<address>&<secret>")]
+#[post("/cid/pin?<cid>&<chain_id>&<address>&<secret>")]
 pub async fn pin_cid(
     cid: String,
     address: String,
@@ -216,7 +216,7 @@ pub async fn pin_cid(
     }
 }
 
-#[get("/pinned_cids?<address>&<chain_id>")]
+#[get("/cid/pinned?<address>&<chain_id>")]
 pub async fn get_cids(
     address: String,
     chain_id: i64,
@@ -352,7 +352,7 @@ pub async fn get_provider(
     }
 }
 
-#[get("/is_pinned/<cid>")]
+#[get("/cid/pinned/<cid>")]
 pub async fn is_pinned(cid: String, psql: DbConn) -> Custom<Option<Json<String>>> {
     match psql
         .run(move |client: &mut Client| {
@@ -380,7 +380,7 @@ pub async fn is_pinned(cid: String, psql: DbConn) -> Custom<Option<Json<String>>
     }
 }
 
-#[get("/cid_info?<cid>")]
+#[get("/cid/info?<cid>")]
 pub async fn cid_info(cid: String, psql: DbConn) -> Custom<Option<Json<String>>> {
     match psql
         .run(move |client: &mut Client| {
