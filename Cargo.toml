@@ -1,5 +1,5 @@
 [package]
-name = "worker"
+name = "hosq"
 version = "0.1.0"
 authors = ["Vahe Grigoryan <vahegian@gmail.com>"]
 edition = "2018"
@@ -15,7 +15,7 @@ serde_json = "1.0.56"
 chrono = { version = "0.4", features = ["serde", "rustc-serialize"] }
 rocket_sync_db_pools = { version = "0.1.0-rc.1", default-features = false, features = ["postgres_pool"] }
 postgres = { version = "0.19", features = ["with-serde_json-1", "with-chrono-0_4"] }
-rocket = { version = "0.5.0-rc.1", features = ["json"] }
+rocket = { version = "0.5.0-rc.2", features = ["json"] }
 reqwest = {version = "0.11.9", features = ["stream", "multipart"]}
 rand = "0.8.4"
 log = "0.4"

@@ -109,7 +109,10 @@ macro_rules! get_logs {
                     _=>{}
                 };
             }
-            
+            tokio::time::sleep(tokio::time::Duration::from_secs(
+                $provider.log_update_sec,
+                ))
+                .await;
             // monitoring the performance
             {
                 let mut data = $mon.lock().unwrap();

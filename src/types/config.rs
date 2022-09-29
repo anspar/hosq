@@ -3,6 +3,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone)]
 pub struct IPFSNode {
     pub api_url: String,
+    pub gateway: String,
     pub login: Option<String>,
     pub password: Option<String>,
 }

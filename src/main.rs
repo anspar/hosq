@@ -8,12 +8,9 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
 use types::State;
-mod contract_watcher;
-mod cors;
 mod db;
-mod handlers;
-mod ipfs_watcher;
-mod providers;
+mod routes;
+mod services;
 mod types;
 mod yaml_parser;
 
@@ -30,36 +27,38 @@ async fn main() {
     //   let pre_release = conf.pre_release;
     let nodes = Arc::new(conf.ipfs_nodes.unwrap());
 
-    let providers_service = providers::Providers {};
+    let providers_service = services::providers::Providers {};
     let providers_manage = providers_service
         .get_providers(conf.providers.unwrap())
         .await
         .unwrap();
     let providers_manage = Arc::new(providers_manage);
 
-    let ipfs_watcher = ipfs_watcher::IPFSService {
+    let ipfs_watcher = services::ipfs_watcher::IPFSService {
         retry_failed_cids_sec: conf.retry_failed_cids_sec,
         update_nodes_sec: conf.update_nodes_sec,
     };
 
     let _ = rocket::build()
+        .mount("/", routes![routes::proxy::ipfs])
         .mount(
-            "/",
+            "/v0",
             routes![
-                handlers::upload_file,
-                handlers::get_cids,
-                handlers::get_providers,
-                handlers::get_provider,
-                handlers::is_pinned,
-                handlers::cid_info,
-                handlers::pin_cid,
-                handlers::monitoring,
+                routes::proxy::upload,
+                routes::proxy::download,
+                routes::handlers::get_cids,
+                routes::handlers::get_providers,
+                routes::handlers::get_provider,
+                routes::handlers::is_pinned,
+                routes::handlers::cid_info,
+                routes::handlers::pin_cid,
+                routes::handlers::monitoring,
             ],
         )
         .attach(types::DbConn::fairing())
-        .attach(cors::CORS)
+        .attach(routes::cors::CORS)
         .attach(ipfs_watcher)
-        .attach(contract_watcher::ContractService)
+        .attach(services::contract_watcher::ContractService)
         .attach(providers_service)
         .manage(State {
             nodes,

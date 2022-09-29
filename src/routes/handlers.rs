@@ -1,4 +1,4 @@
-use super::db;
+use crate::db;
 use crate::types::{
     self,
     db::{CIDInfo, EventAddProviderResponse, PinnedCIDs},
@@ -6,13 +6,16 @@ use crate::types::{
 };
 use postgres::Client;
 use rand::Rng;
-use rocket::http::Status;
-use rocket::response::stream::{Event, EventStream};
+use rocket::response::{
+    stream::{Event, EventStream},
+    Redirect,
+};
 use rocket::{
     data::{Data, ToByteUnit},
-    response::{content::Json, status::Custom},
+    response::status::Custom,
     State,
 };
+use rocket::{http::Status, serde::json::Json};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -32,103 +35,6 @@ async fn get_block_number(chain_id: i64, providers: Arc<Vec<Web3Node>>) -> Optio
     }
 
     Option::None
-}
-
-#[post("/file/upload?<name>&<chain_id>&<address>", data = "<file>")]
-pub async fn upload_file(
-    name: String,
-    file: Data<'_>,
-    state: &State<types::State>,
-    chain_id: i64,
-    address: String,
-    psql: DbConn,
-) -> Result<EventStream![], Custom<Json<String>>> {
-    let (update_block, b_time) = match get_block_number(chain_id, state.providers.clone()).await {
-        Some(v) => v,
-        None => {
-            return Err(Custom(
-                Status::BadRequest,
-                Json("Internal Error, Unsupported chain".to_owned()),
-            ))
-        }
-    };
-
-    let end_block = update_block + (604800 / b_time); // 7 Days
-
-    let rng = rand::thread_rng().gen_range(0..state.nodes.len());
-    //todo: use async buffer don't store the file on memory.
-    let bytes = file
-        .open(100.mebibytes())
-        .into_bytes()
-        .await
-        .unwrap()
-        .map(|m| m)
-        .to_vec();
-
-    let form = reqwest::multipart::Form::new().part(
-        "path",
-        reqwest::multipart::Part::stream(bytes).file_name(name),
-    );
-
-    let req = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v0/add?progress=true&pin=false",
-            state.nodes[rng].api_url
-        ))
-        .header("Content-Disposition", "form-data")
-        .multipart(form);
-
-    let req = if let Some(login) = &state.nodes[rng].login {
-        req.basic_auth(login, state.nodes[rng].password.as_ref())
-    } else {
-        req
-    };
-
-    let mut res = req.send().await.unwrap();
-    if res.status().is_success() {
-        return Ok(EventStream! {
-            let mut chunk = types::IPFSAddResponse::default();
-            while let Some(next) = res.chunk().await.unwrap() {
-                chunk = serde_json::from_slice(&next.to_vec()[..]).unwrap();
-                if let Some(_) = chunk.hash.clone(){
-                    break;
-                }
-                // error!("{:?}", &chunk);
-                yield Event::json(&chunk);
-            }
-            // info!("{:?}", chunk.hash);
-            let cid = chunk.hash.as_ref().unwrap().clone();
-            let result: Result<bool, postgres::Error> = psql.run(move|client|{
-                if db::cid_exists(client, &cid)?{
-                    return Ok(false);
-                }
-                db::add_valid_block(client, types::db::EventUpdateValidBlock{
-                    chain_id,
-                    cid,
-                    donor: address,
-                    update_block: update_block as i64,
-                    end_block: end_block as i64,
-                    manual_add: Option::Some(true),
-                })?;
-                Ok(true)
-            }).await;
-            match result{
-                Ok(v)=>{
-                    chunk.first_import = Option::Some(v);
-                    yield Event::json(&chunk);
-                }
-                Err(e)=>{error!("Error Uploading {}", e); yield Event::data("Internal Error");}
-            };
-
-        });
-    } else {
-        error!("{:?}", res.status());
-    }
-
-    Err(Custom(
-        Status::InternalServerError,
-        Json("Internal Error :(".to_owned()),
-    ))
 }
 
 #[post("/cid/pin?<cid>&<chain_id>&<address>&<secret>")]
