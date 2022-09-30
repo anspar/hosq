@@ -45,7 +45,6 @@ async fn main() {
             "/v0",
             routes![
                 routes::proxy::upload,
-                routes::proxy::download,
                 routes::handlers::get_cids,
                 routes::handlers::get_providers,
                 routes::handlers::get_provider,
