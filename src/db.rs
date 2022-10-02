@@ -97,20 +97,20 @@ pub fn update_provider_name(
     )
 }
 
-pub fn cid_exists(client: &mut postgres::Client, cid: &str) -> Result<bool, postgres::Error> {
-    let row = client.query_one(
-        "
-                    SELECT count(cid) FROM event_update_valid_block WHERE cid=$1::TEXT;
-                ",
-        &[&cid],
-    )?;
+// pub fn cid_exists(client: &mut postgres::Client, cid: &str) -> Result<bool, postgres::Error> {
+//     let row = client.query_one(
+//         "
+//                     SELECT count(cid) FROM event_update_valid_block WHERE cid=$1::TEXT;
+//                 ",
+//         &[&cid],
+//     )?;
 
-    let count: i64 = row.try_get(0)?;
-    if count > 0 {
-        return Ok(true);
-    }
-    Ok(false)
-}
+//     let count: i64 = row.try_get(0)?;
+//     if count > 0 {
+//         return Ok(true);
+//     }
+//     Ok(false)
+// }
 
 pub fn get_max_update_block(
     client: &mut postgres::Client,

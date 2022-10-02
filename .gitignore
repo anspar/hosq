@@ -5,4 +5,4 @@ package-lock.json
 .vscode
 ipfs.session.sql
 Cargo.lock
-config.yml
+_config.yml

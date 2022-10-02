@@ -1,0 +1,21 @@
+update_nodes_sec: 5
+retry_failed_cids_sec: 30
+admin_secret: A992bCf08EF02Ef2Ad4Ad18a2A9231315e74c
+
+providers:
+  - 
+    contract_address: 62552dcB7cd91E08d00f93C66a34F3521bBA172a
+    provider: ws://server:8545
+    start_block: 300
+    block_time_sec: 15
+    block_update_sec: 5
+    log_update_sec: 5
+    chain_name: private
+    provider_id: 1
+    batch_size: 20
+    skip_old: false
+
+ipfs_nodes:
+  - 
+    api_url: http://server:5001
+    gateway: http://server:8080

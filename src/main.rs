@@ -13,6 +13,7 @@ mod routes;
 mod services;
 mod types;
 mod yaml_parser;
+mod utils;
 
 #[rocket::main]
 async fn main() {
@@ -50,7 +51,7 @@ async fn main() {
                 routes::handlers::get_provider,
                 routes::handlers::is_pinned,
                 routes::handlers::cid_info,
-                routes::handlers::pin_cid,
+                // routes::handlers::pin_cid,
                 routes::handlers::monitoring,
             ],
         )

@@ -28,17 +28,17 @@ pub struct IPFSAddResponse {
     pub first_import: Option<bool>,
 }
 
-impl IPFSAddResponse {
-    pub fn default() -> Self {
-        Self {
-            name: "".to_owned(),
-            hash: Option::None,
-            size: Option::None,
-            bytes: Option::None,
-            first_import: Option::None,
-        }
-    }
-}
+// impl IPFSAddResponse {
+//     pub fn default() -> Self {
+//         Self {
+//             name: "".to_owned(),
+//             hash: Option::None,
+//             size: Option::None,
+//             bytes: Option::None,
+//             first_import: Option::None,
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone)]
 pub struct Web3Node {

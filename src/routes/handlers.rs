@@ -1,17 +1,11 @@
-use crate::db;
+// use crate::db;
 use crate::types::{
     self,
     db::{CIDInfo, EventAddProviderResponse, PinnedCIDs},
-    DbConn, IpfsDagStat, Web3Node,
+    DbConn, Web3Node,
 };
 use postgres::Client;
-use rand::Rng;
-use rocket::response::{
-    stream::{Event, EventStream},
-    Redirect,
-};
 use rocket::{
-    data::{Data, ToByteUnit},
     response::status::Custom,
     State,
 };
@@ -37,90 +31,90 @@ async fn get_block_number(chain_id: i64, providers: Arc<Vec<Web3Node>>) -> Optio
     Option::None
 }
 
-#[post("/cid/pin?<cid>&<chain_id>&<address>&<secret>")]
-pub async fn pin_cid(
-    cid: String,
-    address: String,
-    secret: Option<String>,
-    state: &State<types::State>,
-    chain_id: i64,
-    psql: DbConn,
-) -> Custom<Option<Json<String>>> {
-    let (update_block, b_time) = match get_block_number(chain_id, state.providers.clone()).await {
-        Some(v) => v,
-        None => return Custom(Status::BadRequest, Option::None),
-    };
+// #[post("/cid/pin?<cid>&<chain_id>&<address>&<secret>")]
+// pub async fn pin_cid(
+//     cid: String,
+//     address: String,
+//     secret: Option<String>,
+//     state: &State<types::State>,
+//     chain_id: i64,
+//     psql: DbConn,
+// ) -> Custom<Option<Json<String>>> {
+//     let (update_block, b_time) = match get_block_number(chain_id, state.providers.clone()).await {
+//         Some(v) => v,
+//         None => return Custom(Status::BadRequest, Option::None),
+//     };
 
-    let admin_pin = if let Some(sec) = secret {
-        sec.eq(&state.admin_secret)
-    } else {
-        false
-    };
+//     let admin_pin = if let Some(sec) = secret {
+//         sec.eq(&state.admin_secret)
+//     } else {
+//         false
+//     };
 
-    let end_block = if admin_pin {
-        warn!("Request contains Admin secret");
-        -1
-    } else {
-        let req = match reqwest::Client::new()
-            .post(format!(
-                "{}/api/v0/dag/stat?arg={}&progress=false",
-                state.nodes[0].api_url, cid
-            ))
-            .send()
-            .await
-        {
-            Ok(v) => {
-                println!("{:?}", v);
-                v.json::<IpfsDagStat>().await
-            }
-            Err(e) => {
-                error!("Error fetching CID info {}", e);
-                return Custom(Status::InternalServerError, Option::None);
-            }
-        };
+//     let end_block = if admin_pin {
+//         warn!("Request contains Admin secret");
+//         -1
+//     } else {
+//         let req = match reqwest::Client::new()
+//             .post(format!(
+//                 "{}/api/v0/dag/stat?arg={}&progress=false",
+//                 state.nodes[0].api_url, cid
+//             ))
+//             .send()
+//             .await
+//         {
+//             Ok(v) => {
+//                 println!("{:?}", v);
+//                 v.json::<IpfsDagStat>().await
+//             }
+//             Err(e) => {
+//                 error!("Error fetching CID info {}", e);
+//                 return Custom(Status::InternalServerError, Option::None);
+//             }
+//         };
 
-        let cid_size = match req {
-            Ok(v) => v.size,
-            Err(e) => {
-                error!("Error parsing json for CID info {}", e);
-                return Custom(Status::InternalServerError, Option::None);
-            }
-        };
+//         let cid_size = match req {
+//             Ok(v) => v.size,
+//             Err(e) => {
+//                 error!("Error parsing json for CID info {}", e);
+//                 return Custom(Status::InternalServerError, Option::None);
+//             }
+//         };
 
-        if cid_size <= 10_485_760 {
-            //10Mib
-            -1
-        } else {
-            (update_block + (604800 / b_time)) as i64
-        } // 7 Days
-    };
+//         if cid_size <= 10_485_760 {
+//             //10Mib
+//             -1
+//         } else {
+//             (update_block + (604800 / b_time)) as i64
+//         } // 7 Days
+//     };
 
-    match psql
-        .run(move |client| {
-            if !db::cid_exists(client, &cid)? || admin_pin {
-                db::add_valid_block(
-                    client,
-                    types::db::EventUpdateValidBlock {
-                        chain_id,
-                        cid,
-                        donor: address,
-                        update_block: update_block as i64,
-                        end_block: end_block,
-                        manual_add: Option::Some(true),
-                    },
-                )?;
-            }
-            Ok::<(), postgres::Error>(())
-        })
-        .await
-    {
-        Ok(_) => Custom(Status::Ok, Option::Some(Json("true".to_owned()))),
-        Err(e) => {
-            error!("Error Adding cid {}", e);
-            return Custom(Status::InternalServerError, Option::None);
-        }
-    }
-}
+//     match psql
+//         .run(move |client| {
+//             if !db::cid_exists(client, &cid)? || admin_pin {
+//                 db::add_valid_block(
+//                     client,
+//                     types::db::EventUpdateValidBlock {
+//                         chain_id,
+//                         cid,
+//                         donor: address,
+//                         update_block: update_block as i64,
+//                         end_block: end_block,
+//                         manual_add: Option::Some(true),
+//                     },
+//                 )?;
+//             }
+//             Ok::<(), postgres::Error>(())
+//         })
+//         .await
+//     {
+//         Ok(_) => Custom(Status::Ok, Option::Some(Json("true".to_owned()))),
+//         Err(e) => {
+//             error!("Error Adding cid {}", e);
+//             return Custom(Status::InternalServerError, Option::None);
+//         }
+//     }
+// }
 
 #[get("/cid/pinned?<address>&<chain_id>")]
 pub async fn get_cids(
