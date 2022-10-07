@@ -105,15 +105,16 @@ pub async fn get_from_ipfs(r: &Request<'_>) -> Result<Response, anyhow::Error> {
     let uri_string = format!(
         "{}/ipfs/{}",
         state.nodes[node_index].gateway,
-        &match r.segments::<PathBuf>(1..){
-            Ok(v)=> v,
-            Err(e)=> return Err(anyhow!("{e:?}"))
-        }.display()
+        &match r.segments::<PathBuf>(1..) {
+            Ok(v) => v,
+            Err(e) => return Err(anyhow!("{e:?}")),
+        }
+        .display()
     );
-    println!("u\t\t{uri_string}");
+    // println!("\t\t{uri_string}");
     let web_client = reqwest::Client::new().get(uri_string);
     let mut ipfs_headers = reqwest::header::HeaderMap::new();
-    for h in r.headers().clone().into_iter(){
+    for h in r.headers().clone().into_iter() {
         ipfs_headers.append(
             reqwest::header::HeaderName::from_str(h.name().as_str())?,
             reqwest::header::HeaderValue::from_str(&h.value().to_owned())?,

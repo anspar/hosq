@@ -1,0 +1,92 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+jobs:
+  # cargo-fmt:
+  #   name: cargo-fmt
+  #   runs-on: ubuntu-20.04
+  #   steps:
+  #     - uses: actions/checkout@v1
+  #     - name: Check formatting with cargo fmt
+  #       run: cargo fmt --all -- --check
+
+  create-release:
+    name: create-release
+    # needs: cargo-fmt
+    runs-on: ubuntu-20.04
+    outputs:
+      upload_url: ${{ steps.create-release.outputs.upload_url }}
+    steps:
+      - name: Create release
+        uses: actions/create-release@v1
+        id: create-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          release_name: Release v0.1.${{ github.run_number }}
+
+  build-release:
+    name: build-release
+
+    strategy:
+      matrix:
+        config:
+          - os: ubuntu-20.04
+          - os: macos-11
+          - os: windows-2022
+
+    runs-on: ${{ matrix.config.os }}
+    needs: create-release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v1
+
+      - name: Build Linux
+        if: matrix.config.os != 'windows-2022'
+        run: HOSQ_VERSION=0.1.${{ github.run_number }} cargo build --release
+
+      - name: Build Win
+        if: matrix.config.os == 'windows-2022'
+        run: SET HOSQ_VERSION=0.1.${{ github.run_number }} & cargo build --release
+
+      - name: Upload release
+        if: matrix.config.os != 'windows-2022'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./target/release/hosq
+          asset_name: hosq_${{ matrix.config.os }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload Windows release
+        if: matrix.config.os == 'windows-2022'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./target/release/hosq.exe
+          asset_name: hosq.exe
+          asset_content_type: application/octet-stream
+  docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Publish to Registry
+        uses: elgohr/Publish-Docker-Github-Action@v4
+        with:
+          name: anspar/hosq
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}

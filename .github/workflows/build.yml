@@ -1,0 +1,37 @@
+name: build
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+      - main
+
+jobs:
+  # cargo-fmt:
+  #   name: cargo-fmt
+  #   runs-on: ubuntu-20.04
+  #   steps:
+  #     - uses: actions/checkout@v1
+  #     - name: Check formatting with cargo fmt
+  #       run: cargo fmt --all -- --check
+
+  build-bins:
+    name: build-bins
+
+    strategy:
+      matrix:
+        config:
+          - os: ubuntu-20.04
+          - os: macos-11
+          - os: windows-2022
+
+    runs-on: ${{ matrix.config.os }}
+    # needs: cargo-fmt
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v1
+      - name: Build bin
+        run: cargo build --release
