@@ -41,11 +41,11 @@ async fn main() {
     };
 
     let _ = rocket::build()
-        .mount("/", routes![routes::proxy::ipfs])
         .mount(
             "/v0",
             routes![
                 routes::proxy::upload,
+                routes::cors::all_options,
                 routes::handlers::get_cids,
                 routes::handlers::get_providers,
                 routes::handlers::get_provider,
@@ -55,6 +55,7 @@ async fn main() {
                 routes::handlers::monitoring,
             ],
         )
+        .mount("/", routes![routes::proxy::ipfs])
         .attach(types::DbConn::fairing())
         .attach(routes::cors::CORS)
         .attach(ipfs_watcher)
