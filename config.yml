@@ -1,12 +1,13 @@
 update_nodes_sec: 5
 retry_failed_cids_sec: 30
 admin_secret: A992bCf08EF02Ef2Ad4Ad18a2A9231315e74c
+only_api: false
 
 providers:
-  - 
-    contract_address: 62552dcB7cd91E08d00f93C66a34F3521bBA172a
-    provider: ws://server:8545
-    start_block: 300
+  -
+    contract_address: 9ce4cd6D7f5e8b14c7a3e8e6A257A86Bd5a6EeA0
+    provider: ws://lab:8545
+    start_block: 0
     block_time_sec: 15
     block_update_sec: 5
     log_update_sec: 5
@@ -16,6 +17,6 @@ providers:
     skip_old: false
 
 ipfs_nodes:
-  - 
-    api_url: http://server:5001
-    gateway: http://server:8080
+  -
+    api_url: http://localhost:5001
+    gateway: http://localhost:8080

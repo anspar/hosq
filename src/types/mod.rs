@@ -13,7 +13,7 @@ pub mod errors;
 pub mod monitoring;
 
 #[database("pg")]
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct DbConn(postgres::Client);
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IPFSAddResponse {
