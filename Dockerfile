@@ -1,4 +1,4 @@
-FROM rust:1.64.0-buster
+FROM rust:1.71.0-bookworm
 
 COPY ./src /build/src
 COPY ./Cargo.toml /build/Cargo.toml
@@ -6,7 +6,7 @@ COPY ./Cargo.toml /build/Cargo.toml
 RUN cd /build && cargo build --release
 
 
-FROM debian:buster
+FROM debian:bookworm
 RUN apt-get update && apt install -y ca-certificates libssl-dev && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir /app

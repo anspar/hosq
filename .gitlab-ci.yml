@@ -1,31 +1,11 @@
 stages:
-  - compile
   - deploy
-
-build_bin:
-  stage: compile
-  image: rust:1.58.1-buster
-  tags:
-    - ubuntu
-  artifacts:
-    paths:
-      - worker/target/release/worker
-  cache:
-    key: bins
-    untracked: true
-    when: 'always'
-  script:
-    - cd worker
-    - cargo build --release
 
 deploy_image:
   stage: deploy
   tags:
     - docker
-  dependencies:
-    - build_bin
   script:
-    - cd worker
-    - docker build -t registry.anspar.io/anspar_ipfs:latest .
+    - docker build -t registry.anspar.io/hosq:latest .
     - docker login -u "$DOCKER_L" -p "$DOCKER_P" registry.anspar.io
-    - docker push registry.anspar.io/anspar_ipfs:latest
+    - docker push registry.anspar.io/hosq:latest
