@@ -48,9 +48,9 @@ pub async fn upload_to_ipfs(r: &Request<'_>, data: Data<'_>) -> Result<Value, an
         );
     }
     let (mut sender, body) = hyper::body::Body::channel();
-
+    const SS: usize = 1024;
     let mut data = data.open(100.mebibytes());
-    let mut buffer = [0u8; 4096];
+    let mut buffer = [0u8; SS];
 
     let (proxy_req, data_in) = join!(web_client.request(proxy_req.body(body)?), async {
         loop {
@@ -62,9 +62,9 @@ pub async fn upload_to_ipfs(r: &Request<'_>, data: Data<'_>) -> Result<Value, an
                 }
                 Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
                     // error!("{e}");
-                    let mut last_bytes: usize = 4096 - 1;
-                    for i in 1..4096 {
-                        if buffer[4096 - i] > 0 {
+                    let mut last_bytes: usize = SS - 1;
+                    for i in 1..SS {
+                        if buffer[SS - i] > 0 {
                             break;
                         }
                         last_bytes -= 1;

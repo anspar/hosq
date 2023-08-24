@@ -12,8 +12,8 @@ mod db;
 mod routes;
 mod services;
 mod types;
-mod yaml_parser;
 mod utils;
+mod yaml_parser;
 
 #[rocket::main]
 async fn main() {
@@ -40,7 +40,7 @@ async fn main() {
         update_nodes_sec: conf.update_nodes_sec,
     };
 
-    let _ = rocket::build()
+    let r = rocket::build()
         .mount(
             "/v0",
             routes![
@@ -58,16 +58,23 @@ async fn main() {
         .mount("/", routes![routes::proxy::ipfs])
         .attach(types::DbConn::fairing())
         .attach(routes::cors::CORS)
-        .attach(ipfs_watcher)
-        .attach(services::contract_watcher::ContractService)
-        .attach(providers_service)
         .manage(State {
             nodes,
             providers: providers_manage,
             admin_secret: conf.admin_secret,
             monitoring: Arc::new(Mutex::new(HashMap::new())),
-        })
-        .launch()
-        .await;
-    //add fairing to keep sockets alive
+        });
+
+    match conf.only_api {
+        Some(oa) if !oa => {
+            r.attach(ipfs_watcher)
+                .attach(services::contract_watcher::ContractService)
+                .attach(providers_service)
+                .launch()
+                .await.unwrap();
+        }
+        _ => {
+            r.launch().await.unwrap();
+        }
+    };
 }

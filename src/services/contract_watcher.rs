@@ -512,27 +512,27 @@ impl Fairing for ContractService {
         let db = Arc::new(DbConn::get_one(&rocket).await.expect("database mounted."));
 
         let shutdown = rocket.shutdown();
-        let providers = rocket.state::<State>().unwrap().clone().providers.clone();
-        let mon = rocket.state::<State>().unwrap().clone().monitoring.clone();
+        let providers = rocket.state::<State>().unwrap().providers.clone();
+        let mon = rocket.state::<State>().unwrap().monitoring.clone();
 
         for provider in &*providers {
             watch_event!("event_update_valid_block", "UpdateValidBlock(address,uint256,uint256,string)"
-                            => provider, db, shutdown, mon 
+                            => provider, db, shutdown, mon
                             => update_valid_block);
-            watch_event!("event_add_provider", "AddProvider(address,uint256,uint256,string,string)" 
-                            => provider, db, shutdown, mon 
+            watch_event!("event_add_provider", "AddProvider(address,uint256,uint256,string,string)"
+                            => provider, db, shutdown, mon
                             => update_add_provider);
-            watch_event!("event_add_provider", "UpdateProviderBlockPrice(uint256,uint256)" 
-                            => provider, db, shutdown, mon 
+            watch_event!("event_add_provider", "UpdateProviderBlockPrice(uint256,uint256)"
+                            => provider, db, shutdown, mon
                             => update_provider_block_price);
-            watch_event!("event_add_provider", "UpdateProviderApiUrl(uint256,string)" 
-                            => provider, db, shutdown, mon 
+            watch_event!("event_add_provider", "UpdateProviderApiUrl(uint256,string)"
+                            => provider, db, shutdown, mon
                             => update_provider_api_url);
-            watch_event!("event_add_provider", "UpdateProviderAddress(uint256,address)" 
-                            => provider, db, shutdown, mon 
+            watch_event!("event_add_provider", "UpdateProviderAddress(uint256,address)"
+                            => provider, db, shutdown, mon
                             => update_provider_owner);
-            watch_event!("event_add_provider", "UpdateProviderName(uint256,string)" 
-                            => provider, db, shutdown, mon 
+            watch_event!("event_add_provider", "UpdateProviderName(uint256,string)"
+                            => provider, db, shutdown, mon
                             => update_provider_name);
         }
     }

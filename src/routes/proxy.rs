@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use futures_util::StreamExt;
 use rocket::{
     data::{Data, FromData, Outcome},
@@ -40,10 +38,10 @@ impl<'r> FromData<'r> for ProxyUploadData {
 }
 
 /// Upload file(s) to IPFS node.
-///  
+///
 /// Use multipart form for payload where key=file and value=blob
-/// 
-/// Wrap the files in dir with query `?dir=true` 
+///
+/// Wrap the files in dir with query `?dir=true`
 #[post("/file/upload?<dir>", data = "<data>")]
 pub async fn upload(dir: Option<bool>, data: ProxyUploadData) -> status::Custom<Json<Value>> {
     status::Custom(Status::Ok, Json(data.data))
@@ -66,7 +64,7 @@ impl<'r> FromRequest<'r> for ProxyIpfsData {
                 error!("Error get ipfs: {e}");
                 rocket::request::Outcome::Failure((Status::InternalServerError, ProxyError::ProxyFailed("Failed to get data from IPFS".to_owned())))
             }
-        } 
+        }
     }
 }
 
@@ -97,8 +95,7 @@ impl<'r> rocket::response::Responder<'r, 'static> for ProxyIpfsData {
 }
 
 /// Retrieve data from IPFS node
-#[get("/ipfs/<cid..>")]
-pub async fn ipfs(cid: PathBuf, ipfs_resp: ProxyIpfsData) -> ProxyIpfsData {
-    // println!("{:?}", ipfs_resp.data);
+#[get("/ipfs/<_..>")]
+pub async fn ipfs(ipfs_resp: ProxyIpfsData) -> ProxyIpfsData {
     ipfs_resp
 }
