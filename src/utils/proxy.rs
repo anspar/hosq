@@ -1,15 +1,82 @@
 use std::{io::ErrorKind, path::PathBuf, str::FromStr};
 
 use anyhow::anyhow;
-use hyper::{self, body::HttpBody, header::HeaderName, http::HeaderValue};
+use hyper::{
+    self,
+    body::{HttpBody, Sender},
+    header::HeaderName,
+    http::HeaderValue,
+    Body,
+};
 use rand::{rngs::StdRng, Rng};
 use reqwest::Response;
 use rocket::{
     data::ToByteUnit,
-    tokio::{io::AsyncReadExt, join},
+    tokio::{io::AsyncWrite, join},
     Data, Request,
 };
 use serde_json::Value;
+
+struct ProxySynchronizer {
+    sender: Option<Sender>,
+}
+
+impl ProxySynchronizer {
+    pub fn new() -> Self {
+        Self { sender: None }
+    }
+
+    pub fn get_body(&mut self) -> Body {
+        let (sender, body) = hyper::body::Body::channel();
+        self.sender = Some(sender);
+        body
+    }
+}
+
+impl AsyncWrite for ProxySynchronizer {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+        // println!("\tpw: {buf:?}");
+        let sender = self.sender.as_mut().unwrap();
+        match sender.poll_ready(cx) {
+            std::task::Poll::Pending => {
+                return std::task::Poll::Pending;
+            }
+            std::task::Poll::Ready(v) if v.is_err() => {
+                return std::task::Poll::Ready(Err(std::io::Error::new(
+                    ErrorKind::UnexpectedEof,
+                    format!("failed to poll: {v:?}"),
+                )));
+            }
+            _ => {}
+        }
+
+        match sender.try_send_data(hyper::body::Bytes::copy_from_slice(&buf[..])) {
+            Ok(_) => std::task::Poll::Ready(Ok(buf.len())),
+            Err(e) => std::task::Poll::Ready(Err(std::io::Error::new(
+                ErrorKind::UnexpectedEof,
+                format!("failed to send: {e:?}"),
+            ))),
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
 
 pub async fn upload_to_ipfs(r: &Request<'_>, data: Data<'_>) -> Result<Value, anyhow::Error> {
     let state = match r.rocket().state::<crate::types::State>() {
@@ -47,37 +114,10 @@ pub async fn upload_to_ipfs(r: &Request<'_>, data: Data<'_>) -> Result<Value, an
             HeaderValue::from_str(&h.value().to_owned())?,
         );
     }
-    let (mut sender, body) = hyper::body::Body::channel();
-    const SS: usize = 1024;
-    let mut data = data.open(100.mebibytes());
-    let mut buffer = [0u8; SS];
-
-    let (proxy_req, data_in) = join!(web_client.request(proxy_req.body(body)?), async {
-        loop {
-            match data.read_exact(&mut buffer).await {
-                Ok(_) => {
-                    sender
-                        .send_data(hyper::body::Bytes::copy_from_slice(&buffer[..]))
-                        .await?;
-                }
-                Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
-                    // error!("{e}");
-                    let mut last_bytes: usize = SS - 1;
-                    for i in 1..SS {
-                        if buffer[SS - i] > 0 {
-                            break;
-                        }
-                        last_bytes -= 1;
-                    }
-                    sender
-                        .send_data(hyper::body::Bytes::copy_from_slice(&buffer[..last_bytes]))
-                        .await?;
-                    drop(sender);
-                    break;
-                }
-                Err(e) => return Err(anyhow!("Error Reading bytes from stream: {e}")),
-            }
-        }
+    let mut ps = ProxySynchronizer::new();
+    let data = data.open(100.mebibytes());
+    let (proxy_req, data_in) = join!(web_client.request(proxy_req.body(ps.get_body())?), async {
+        data.stream_to(ps).await?;
         Ok::<(), anyhow::Error>(())
     });
 
